@@ -122,7 +122,7 @@ fun Controls(
         }
 
         Button(onClick = onEditClick) {
-            Text(if (editMode) "Просмотр" else "Редактировать")
+            Text(if (editMode) "Просмотр" else "Редактирование")
         }
     }
 }
