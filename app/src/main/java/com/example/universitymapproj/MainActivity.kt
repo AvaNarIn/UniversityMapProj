@@ -30,8 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 
-private const val COLS = 216
-private const val ROWS = 244
+private const val COLS = 108
+private const val ROWS = 122
 private const val IMG_W = 1170f
 private const val IMG_H = 1414f
 
