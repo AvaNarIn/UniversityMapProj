@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -12,7 +14,9 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.mutableStateListOf
@@ -27,9 +31,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 private const val COLS = 108
 private const val ROWS = 122
@@ -45,11 +51,11 @@ data class Obshepit(
     val type: String = ""
 )
 
-// ХРАНИЛИЩЕ
 object MapConfig {
     var SAVED_GRID = ""
 
-    var SAVED_FOOD_PLACES = "80,61,Новый общепит,Описание,08:00-18:00,Кафе;84,63,Новый общепит,Описание,08:00-18:00,Кафе;76,71,Новый общепит,Описание,08:00-18:00,Кафе;66,71,Новый общепит,Описание,08:00-18:00,Кафе;68,83,Новый общепит,Описание,08:00-18:00,Кафе;83,85,Новый общепит,Описание,08:00-18:00,Кафе"
+    var SAVED_FOOD_PLACES =
+        "80,61,Новый общепит,Описание,08:00-18:00,Кафе;84,63,Новый общепит,Описание,08:00-18:00,Кафе;76,71,Новый общепит,Описание,08:00-18:00,Кафе;66,71,Новый общепит,Описание,08:00-18:00,Кафе;68,83,Новый общепит,Описание,08:00-18:00,Кафе;83,85,Новый общепит,Описание,08:00-18:00,Кафе"
 }
 
 fun exportGridToString(grid: Array<BooleanArray>): String {
@@ -195,6 +201,10 @@ enum class FoodEditMode {
     DELETE
 }
 
+data class ClusterPoint(val row: Int, val col: Int)
+data class ClusterCentroid(val x: Double, val y: Double)
+data class ClusteredPoint(val row: Int, val col: Int, val clusterIndex: Int)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -203,11 +213,78 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+fun distance(aRow: Double, aCol: Double, bRow: Double, bCol: Double): Double {
+    return sqrt((aRow - bRow) * (aRow - bRow) + (aCol - bCol) * (aCol - bCol))
+}
+
+fun runKMeans(points: List<ClusterPoint>, k: Int, maxIterations: Int = 100): List<ClusteredPoint> {
+    if (points.isEmpty()) return emptyList()
+
+    val realK = k.coerceAtMost(points.size).coerceAtLeast(1)
+
+    var centroids = points.take(realK).map {
+        ClusterCentroid(it.row.toDouble(), it.col.toDouble())
+    }
+
+    var assignments = List(points.size) { 0 }
+
+    repeat(maxIterations) {
+        val newAssignments = points.map { point ->
+            centroids.indices.minByOrNull { idx ->
+                distance(
+                    point.row.toDouble(),
+                    point.col.toDouble(),
+                    centroids[idx].x,
+                    centroids[idx].y
+                )
+            } ?: 0
+        }
+
+        val newCentroids = centroids.indices.map { clusterIndex ->
+            val clusterPoints = points.filterIndexed { index, _ ->
+                newAssignments[index] == clusterIndex
+            }
+
+            if (clusterPoints.isEmpty()) {
+                centroids[clusterIndex]
+            } else {
+                ClusterCentroid(
+                    x = clusterPoints.map { it.row }.average(),
+                    y = clusterPoints.map { it.col }.average()
+                )
+            }
+        }
+
+        val changed = centroids.indices.any { i ->
+            abs(centroids[i].x - newCentroids[i].x) > 0.001 ||
+                    abs(centroids[i].y - newCentroids[i].y) > 0.001
+        }
+
+        assignments = newAssignments
+        centroids = newCentroids
+
+        if (!changed) return@repeat
+    }
+
+    return points.mapIndexed { index, point ->
+        ClusteredPoint(
+            row = point.row,
+            col = point.col,
+            clusterIndex = assignments[index]
+        )
+    }
+}
+
 @Composable
 fun MainScreen() {
     var gridVisible by remember { mutableStateOf(false) }
     var editEnabled by remember { mutableStateOf(false) }
     var foodEditMode by remember { mutableStateOf(FoodEditMode.NONE) }
+
+    var clusteringMode by remember { mutableStateOf(false) }
+    var clusterCountText by remember { mutableStateOf("3") }
+    val selectedClusterPoints = remember { mutableStateListOf<ClusterPoint>() }
+    val clusteredPoints = remember { mutableStateListOf<ClusteredPoint>() }
 
     val mapGrid = remember { mutableStateOf(importGridFromString(MapConfig.SAVED_GRID)) }
 
@@ -229,10 +306,13 @@ fun MainScreen() {
         UniversityMap(
             modifier = Modifier.weight(5f),
             showGrid = gridVisible,
-            editMode = editEnabled,
+            editMode = editEnabled && !clusteringMode,
             grid = mapGrid.value,
             foodPlaces = foodPlaces,
-            foodEditMode = foodEditMode,
+            foodEditMode = if (clusteringMode) FoodEditMode.NONE else foodEditMode,
+            clusteringMode = clusteringMode,
+            selectedClusterPoints = selectedClusterPoints,
+            clusteredPoints = clusteredPoints,
             onGridChanged = { updateTick++ },
             onAddFoodPlace = { row, col ->
                 if (foodPlaces.none { it.row == row && it.col == col }) {
@@ -250,23 +330,40 @@ fun MainScreen() {
             },
             onDeleteFoodPlace = { row, col ->
                 foodPlaces.removeAll { it.row == row && it.col == col }
+            },
+            onClusterPointToggle = { row, col ->
+                val existing = selectedClusterPoints.indexOfFirst { it.row == row && it.col == col }
+                if (existing >= 0) {
+                    selectedClusterPoints.removeAt(existing)
+                } else {
+                    selectedClusterPoints.add(ClusterPoint(row, col))
+                }
+                clusteredPoints.clear()
             }
         )
 
         Controls(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1.4f),
             showGrid = gridVisible,
             editMode = editEnabled,
             foodEditMode = foodEditMode,
+            clusteringMode = clusteringMode,
+            clusterCountText = clusterCountText,
+            selectedPointsCount = selectedClusterPoints.size,
+            onClusterCountChange = { clusterCountText = it.filter { ch -> ch.isDigit() } },
             onGridClick = { gridVisible = !gridVisible },
-            onEditClick = { editEnabled = !editEnabled },
+            onEditClick = { if (!clusteringMode) editEnabled = !editEnabled },
             onFoodAddClick = {
-                foodEditMode =
-                    if (foodEditMode == FoodEditMode.ADD) FoodEditMode.NONE else FoodEditMode.ADD
+                if (!clusteringMode) {
+                    foodEditMode =
+                        if (foodEditMode == FoodEditMode.ADD) FoodEditMode.NONE else FoodEditMode.ADD
+                }
             },
             onFoodDeleteClick = {
-                foodEditMode =
-                    if (foodEditMode == FoodEditMode.DELETE) FoodEditMode.NONE else FoodEditMode.DELETE
+                if (!clusteringMode) {
+                    foodEditMode =
+                        if (foodEditMode == FoodEditMode.DELETE) FoodEditMode.NONE else FoodEditMode.DELETE
+                }
             },
             onExportClick = {
                 val gridResult = exportGridToString(mapGrid.value)
@@ -275,6 +372,23 @@ fun MainScreen() {
                 Log.d("MAP_DATA_LENGTH", gridResult.length.toString())
                 Log.d("MAP_DATA", gridResult)
                 Log.d("FOOD_PLACES", foodResult)
+            },
+            onClusteringToggle = {
+                clusteringMode = !clusteringMode
+                if (!clusteringMode) {
+                    selectedClusterPoints.clear()
+                    clusteredPoints.clear()
+                } else {
+                    foodEditMode = FoodEditMode.NONE
+                    editEnabled = false
+                }
+            },
+            onRunClustering = {
+                val k = clusterCountText.toIntOrNull() ?: 0
+                if (selectedClusterPoints.isNotEmpty() && k > 0) {
+                    clusteredPoints.clear()
+                    clusteredPoints.addAll(runKMeans(selectedClusterPoints.toList(), k))
+                }
             }
         )
     }
@@ -300,16 +414,25 @@ fun Controls(
     showGrid: Boolean,
     editMode: Boolean,
     foodEditMode: FoodEditMode,
+    clusteringMode: Boolean,
+    clusterCountText: String,
+    selectedPointsCount: Int,
+    onClusterCountChange: (String) -> Unit,
     onGridClick: () -> Unit,
     onEditClick: () -> Unit,
     onFoodAddClick: () -> Unit,
     onFoodDeleteClick: () -> Unit,
-    onExportClick: () -> Unit
+    onExportClick: () -> Unit,
+    onClusteringToggle: () -> Unit,
+    onRunClustering: () -> Unit
 ) {
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(Color(0xFFF2F2F2))
+            .verticalScroll(scrollState)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -341,6 +464,37 @@ fun Controls(
                 Text(if (foodEditMode == FoodEditMode.DELETE) "Удаление ВКЛ" else "Удалить общепит")
             }
         }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Button(onClick = onClusteringToggle) {
+                Text(if (clusteringMode) "Вернуться к карте" else "Кластеризация")
+            }
+        }
+
+        if (clusteringMode) {
+            OutlinedTextField(
+                value = clusterCountText,
+                onValueChange = onClusterCountChange,
+                label = { Text("Количество кластеров K") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text("Выбрано точек: $selectedPointsCount", fontSize = 14.sp)
+
+            Button(
+                onClick = onRunClustering,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Запустить K-средних")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
     }
 }
 
@@ -352,9 +506,13 @@ fun UniversityMap(
     grid: Array<BooleanArray>,
     foodPlaces: List<Obshepit>,
     foodEditMode: FoodEditMode,
+    clusteringMode: Boolean,
+    selectedClusterPoints: List<ClusterPoint>,
+    clusteredPoints: List<ClusteredPoint>,
     onGridChanged: () -> Unit,
     onAddFoodPlace: (Int, Int) -> Unit,
-    onDeleteFoodPlace: (Int, Int) -> Unit
+    onDeleteFoodPlace: (Int, Int) -> Unit,
+    onClusterPointToggle: (Int, Int) -> Unit
 ) {
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -370,6 +528,19 @@ fun UniversityMap(
     LaunchedEffect(grid) {
         localGrid = grid.map { it.copyOf() }.toTypedArray()
     }
+
+    val clusterColors = listOf(
+        Color.Red,
+        Color.Blue,
+        Color.Green,
+        Color.Magenta,
+        Color.Cyan,
+        Color.Yellow,
+        Color(0xFFFF9800),
+        Color(0xFF9C27B0),
+        Color(0xFF795548),
+        Color(0xFF009688)
+    )
 
     BoxWithConstraints(
         modifier = modifier
@@ -412,7 +583,7 @@ fun UniversityMap(
                         offset = fixOffset(scale, offset + pan)
                     }
                 }
-                .pointerInput(editMode, screenW, screenH, offset, scale, foodPlaces, foodEditMode) {
+                .pointerInput(editMode, screenW, screenH, offset, scale, foodPlaces, foodEditMode, clusteringMode, selectedClusterPoints) {
                     if (editMode) {
                         detectDragGestures { change, _ ->
                             getGridCoords(change.position)?.let { (r, c) ->
@@ -428,6 +599,12 @@ fun UniversityMap(
                     } else {
                         detectTapGestures { tap ->
                             getGridCoords(tap)?.let { (r, c) ->
+
+                                if (clusteringMode) {
+                                    onClusterPointToggle(r, c)
+                                    return@detectTapGestures
+                                }
+
                                 when (foodEditMode) {
                                     FoodEditMode.ADD -> {
                                         onAddFoodPlace(r, c)
@@ -525,6 +702,24 @@ fun UniversityMap(
                             topLeft = Offset(place.col * cw, place.row * ch),
                             size = Size(cw, ch)
                         )
+                    }
+
+                    if (clusteredPoints.isNotEmpty()) {
+                        clusteredPoints.forEach { point ->
+                            drawRect(
+                                color = clusterColors[point.clusterIndex % clusterColors.size].copy(alpha = 0.85f),
+                                topLeft = Offset(point.col * cw, point.row * ch),
+                                size = Size(cw, ch)
+                            )
+                        }
+                    } else {
+                        selectedClusterPoints.forEach { point ->
+                            drawRect(
+                                color = Color.Black.copy(alpha = 0.85f),
+                                topLeft = Offset(point.col * cw, point.row * ch),
+                                size = Size(cw, ch)
+                            )
+                        }
                     }
 
                     startPoint?.let { (r, c) ->
