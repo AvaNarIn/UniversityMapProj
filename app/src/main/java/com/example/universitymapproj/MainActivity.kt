@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -35,10 +36,20 @@ private const val ROWS = 122
 private const val IMG_W = 1170f
 private const val IMG_H = 1414f
 
+data class Obshepit(
+    val row: Int,
+    val col: Int,
+    val title: String,
+    val description: String = "",
+    val workingHours: String = "",
+    val type: String = ""
+)
+
 // ХРАНИЛИЩЕ
 object MapConfig {
-    //СТРОКА ИЗ ЛОГ КЕТА сюда
     var SAVED_GRID = ""
+
+    var SAVED_FOOD_PLACES = "80,61,Новый общепит,Описание,08:00-18:00,Кафе;84,63,Новый общепит,Описание,08:00-18:00,Кафе;76,71,Новый общепит,Описание,08:00-18:00,Кафе;66,71,Новый общепит,Описание,08:00-18:00,Кафе;68,83,Новый общепит,Описание,08:00-18:00,Кафе;83,85,Новый общепит,Описание,08:00-18:00,Кафе"
 }
 
 fun exportGridToString(grid: Array<BooleanArray>): String {
@@ -50,7 +61,9 @@ fun exportGridToString(grid: Array<BooleanArray>): String {
 }
 
 fun importGridFromString(data: String): Array<BooleanArray> {
-    if (data.length != ROWS * COLS) return Array(ROWS) { BooleanArray(COLS) { false } }
+    if (data.length != ROWS * COLS) {
+        return Array(ROWS) { BooleanArray(COLS) { false } }
+    }
 
     val grid = Array(ROWS) { BooleanArray(COLS) }
     var index = 0
@@ -62,8 +75,49 @@ fun importGridFromString(data: String): Array<BooleanArray> {
     }
     return grid
 }
-//  A*
-data class Node(val r: Int, val c: Int, var g: Int = 0, var h: Int = 0, var parent: Node? = null) {
+
+fun exportFoodPlacesToString(foodPlaces: List<Obshepit>): String {
+    return foodPlaces.joinToString(";") { place ->
+        listOf(
+            place.row.toString(),
+            place.col.toString(),
+            place.title.replace(",", " ").replace(";", " "),
+            place.description.replace(",", " ").replace(";", " "),
+            place.workingHours.replace(",", " ").replace(";", " "),
+            place.type.replace(",", " ").replace(";", " ")
+        ).joinToString(",")
+    }
+}
+
+fun importFoodPlacesFromString(data: String): MutableList<Obshepit> {
+    if (data.isBlank()) return mutableListOf()
+
+    return data.split(";").mapNotNull { item ->
+        val parts = item.split(",")
+        if (parts.size < 6) return@mapNotNull null
+
+        val row = parts[0].toIntOrNull() ?: return@mapNotNull null
+        val col = parts[1].toIntOrNull() ?: return@mapNotNull null
+
+        Obshepit(
+            row = row,
+            col = col,
+            title = parts[2],
+            description = parts[3],
+            workingHours = parts[4],
+            type = parts[5]
+        )
+    }.toMutableList()
+}
+
+// A*
+data class Node(
+    val r: Int,
+    val c: Int,
+    var g: Int = 0,
+    var h: Int = 0,
+    var parent: Node? = null
+) {
     val f get() = g + h
 }
 
@@ -74,7 +128,6 @@ class AStarPathfinder(private val grid: Array<BooleanArray>) {
 
         val gCost = Array(ROWS) { IntArray(COLS) { Int.MAX_VALUE } }
         gCost[sr][sc] = 0
-
         while (open.isNotEmpty()) {
             val curr = open.minByOrNull { it.f }!!
             if (curr.r == er && curr.c == ec) {
@@ -106,9 +159,7 @@ class AStarPathfinder(private val grid: Array<BooleanArray>) {
                 val nc = curr.c + dc
 
                 if (nr !in 0 until ROWS || nc !in 0 until COLS) continue
-
                 if (!grid[nr][nc]) continue
-
                 if (nr to nc in closed) continue
 
                 val moveCost = if (dr != 0 && dc != 0) 14 else 10
@@ -116,15 +167,12 @@ class AStarPathfinder(private val grid: Array<BooleanArray>) {
 
                 if (newG < gCost[nr][nc]) {
                     gCost[nr][nc] = newG
-
                     val h = (abs(nr - er) + abs(nc - ec)) * 10
-
 
                     val node = Node(nr, nc)
                     node.parent = curr
                     node.g = newG
                     node.h = h
-
 
                     val existing = open.find { it.r == nr && it.c == nc }
                     if (existing != null) {
@@ -141,7 +189,11 @@ class AStarPathfinder(private val grid: Array<BooleanArray>) {
     }
 }
 
-//  UI
+enum class FoodEditMode {
+    NONE,
+    ADD,
+    DELETE
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -155,11 +207,23 @@ class MainActivity : ComponentActivity() {
 fun MainScreen() {
     var gridVisible by remember { mutableStateOf(false) }
     var editEnabled by remember { mutableStateOf(false) }
+    var foodEditMode by remember { mutableStateOf(FoodEditMode.NONE) }
 
     val mapGrid = remember { mutableStateOf(importGridFromString(MapConfig.SAVED_GRID)) }
+
+    val foodPlaces = remember {
+        mutableStateListOf<Obshepit>().apply {
+            addAll(importFoodPlacesFromString(MapConfig.SAVED_FOOD_PLACES))
+        }
+    }
+
     var updateTick by remember { mutableStateOf(0) }
 
-    Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+    ) {
         Header()
 
         UniversityMap(
@@ -167,18 +231,50 @@ fun MainScreen() {
             showGrid = gridVisible,
             editMode = editEnabled,
             grid = mapGrid.value,
-            onGridChanged = { updateTick++ }
+            foodPlaces = foodPlaces,
+            foodEditMode = foodEditMode,
+            onGridChanged = { updateTick++ },
+            onAddFoodPlace = { row, col ->
+                if (foodPlaces.none { it.row == row && it.col == col }) {
+                    foodPlaces.add(
+                        Obshepit(
+                            row = row,
+                            col = col,
+                            title = "Новый общепит",
+                            description = "Описание",
+                            workingHours = "08:00-18:00",
+                            type = "Кафе"
+                        )
+                    )
+                }
+            },
+            onDeleteFoodPlace = { row, col ->
+                foodPlaces.removeAll { it.row == row && it.col == col }
+            }
         )
 
         Controls(
             modifier = Modifier.weight(1f),
             showGrid = gridVisible,
             editMode = editEnabled,
+            foodEditMode = foodEditMode,
             onGridClick = { gridVisible = !gridVisible },
             onEditClick = { editEnabled = !editEnabled },
+            onFoodAddClick = {
+                foodEditMode =
+                    if (foodEditMode == FoodEditMode.ADD) FoodEditMode.NONE else FoodEditMode.ADD
+            },
+            onFoodDeleteClick = {
+                foodEditMode =
+                    if (foodEditMode == FoodEditMode.DELETE) FoodEditMode.NONE else FoodEditMode.DELETE
+            },
             onExportClick = {
-                val result = exportGridToString(mapGrid.value)
-                Log.d("MAP_DATA", result)
+                val gridResult = exportGridToString(mapGrid.value)
+                val foodResult = exportFoodPlacesToString(foodPlaces)
+
+                Log.d("MAP_DATA_LENGTH", gridResult.length.toString())
+                Log.d("MAP_DATA", gridResult)
+                Log.d("FOOD_PLACES", foodResult)
             }
         )
     }
@@ -186,25 +282,67 @@ fun MainScreen() {
 
 @Composable
 fun Header() {
-    Box(modifier = Modifier.fillMaxWidth().height(80.dp).background(Color(0xFF1976D2)).padding(top = 24.dp), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(80.dp)
+            .background(Color(0xFF1976D2))
+            .padding(top = 24.dp),
+        contentAlignment = Alignment.Center
+    ) {
         Text("Навигатор Университета", color = Color.White, fontSize = 20.sp)
     }
 }
 
 @Composable
 fun Controls(
-    modifier: Modifier, showGrid: Boolean, editMode: Boolean,
-    onGridClick: () -> Unit, onEditClick: () -> Unit, onExportClick: () -> Unit
+    modifier: Modifier,
+    showGrid: Boolean,
+    editMode: Boolean,
+    foodEditMode: FoodEditMode,
+    onGridClick: () -> Unit,
+    onEditClick: () -> Unit,
+    onFoodAddClick: () -> Unit,
+    onFoodDeleteClick: () -> Unit,
+    onExportClick: () -> Unit
 ) {
-    Row(modifier = modifier.fillMaxWidth().background(Color(0xFFF2F2F2)).padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-        Button(onClick = onGridClick) { Text(if (showGrid) "Скрыть" else "Сетка") }
-        Button(onClick = onEditClick) { Text(if (editMode) "Просмотр" else "Править") }
-        Button(onClick = onExportClick) { Text("Log") }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF2F2F2))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(onClick = onGridClick) {
+                Text(if (showGrid) "Скрыть сетку" else "Сетка")
+            }
+            Button(onClick = onEditClick) {
+                Text(if (editMode) "Просмотр" else "Править путь")
+            }
+            Button(onClick = onExportClick) {
+                Text("Log")
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(onClick = onFoodAddClick) {
+                Text(if (foodEditMode == FoodEditMode.ADD) "Добавление ВКЛ" else "Добавить общепит")
+            }
+            Button(onClick = onFoodDeleteClick) {
+                Text(if (foodEditMode == FoodEditMode.DELETE) "Удаление ВКЛ" else "Удалить общепит")
+            }
+        }
     }
 }
-
-
 
 @Composable
 fun UniversityMap(
@@ -212,7 +350,11 @@ fun UniversityMap(
     showGrid: Boolean,
     editMode: Boolean,
     grid: Array<BooleanArray>,
-    onGridChanged: () -> Unit
+    foodPlaces: List<Obshepit>,
+    foodEditMode: FoodEditMode,
+    onGridChanged: () -> Unit,
+    onAddFoodPlace: (Int, Int) -> Unit,
+    onDeleteFoodPlace: (Int, Int) -> Unit
 ) {
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -220,6 +362,8 @@ fun UniversityMap(
     var startPoint by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var endPoint by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var path by remember { mutableStateOf<List<Pair<Int, Int>>>(emptyList()) }
+
+    var selectedFoodPlace by remember { mutableStateOf<Obshepit?>(null) }
 
     var localGrid by remember { mutableStateOf(grid) }
 
@@ -245,7 +389,10 @@ fun UniversityMap(
         fun fixOffset(s: Float, o: Offset): Offset {
             val maxX = maxOf((mapW * s - screenW) / 2f, 0f)
             val maxY = maxOf((mapH * s - screenH) / 2f, 0f)
-            return Offset(o.x.coerceIn(-maxX, maxX), o.y.coerceIn(-maxY, maxY))
+            return Offset(
+                o.x.coerceIn(-maxX, maxX),
+                o.y.coerceIn(-maxY, maxY)
+            )
         }
 
         fun getGridCoords(tap: Offset): Pair<Int, Int>? {
@@ -265,7 +412,7 @@ fun UniversityMap(
                         offset = fixOffset(scale, offset + pan)
                     }
                 }
-                .pointerInput(editMode, screenW, screenH, offset, scale) {
+                .pointerInput(editMode, screenW, screenH, offset, scale, foodPlaces, foodEditMode) {
                     if (editMode) {
                         detectDragGestures { change, _ ->
                             getGridCoords(change.position)?.let { (r, c) ->
@@ -281,16 +428,39 @@ fun UniversityMap(
                     } else {
                         detectTapGestures { tap ->
                             getGridCoords(tap)?.let { (r, c) ->
-                                if (localGrid[r][c]) {
-                                    if (startPoint == null || (startPoint != null && endPoint != null)) {
-                                        startPoint = r to c
-                                        endPoint = null
-                                        path = emptyList()
-                                    } else {
-                                        endPoint = r to c
-                                        path = AStarPathfinder(localGrid).findPath(
-                                            startPoint!!.first, startPoint!!.second, r, c
-                                        )
+                                when (foodEditMode) {
+                                    FoodEditMode.ADD -> {
+                                        onAddFoodPlace(r, c)
+                                        selectedFoodPlace = foodPlaces.find { it.row == r && it.col == c }
+                                    }
+
+                                    FoodEditMode.DELETE -> {
+                                        onDeleteFoodPlace(r, c)
+                                        if (selectedFoodPlace?.row == r && selectedFoodPlace?.col == c) {
+                                            selectedFoodPlace = null
+                                        }
+                                    }
+
+                                    FoodEditMode.NONE -> {
+                                        val clickedFoodPlace =
+                                            foodPlaces.find { it.row == r && it.col == c }
+                                        selectedFoodPlace = clickedFoodPlace
+
+                                        if (localGrid[r][c]) {
+                                            if (startPoint == null || (startPoint != null && endPoint != null)) {
+                                                startPoint = r to c
+                                                endPoint = null
+                                                path = emptyList()
+                                            } else {
+                                                endPoint = r to c
+                                                path = AStarPathfinder(localGrid).findPath(
+                                                    startPoint!!.first,
+                                                    startPoint!!.second,
+                                                    r,
+                                                    c
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -349,6 +519,14 @@ fun UniversityMap(
                         )
                     }
 
+                    foodPlaces.forEach { place ->
+                        drawRect(
+                            color = Color.Yellow.copy(alpha = 0.8f),
+                            topLeft = Offset(place.col * cw, place.row * ch),
+                            size = Size(cw, ch)
+                        )
+                    }
+
                     startPoint?.let { (r, c) ->
                         drawCircle(
                             color = Color.Blue,
@@ -356,6 +534,7 @@ fun UniversityMap(
                             center = Offset(c * cw + cw / 2, r * ch + ch / 2)
                         )
                     }
+
                     endPoint?.let { (r, c) ->
                         drawCircle(
                             color = Color.Magenta,
@@ -363,6 +542,24 @@ fun UniversityMap(
                             center = Offset(c * cw + cw / 2, r * ch + ch / 2)
                         )
                     }
+                }
+
+                selectedFoodPlace?.let { place ->
+                    val cellW = mapW / COLS
+                    val cellH = mapH / ROWS
+
+                    Text(
+                        text = place.title,
+                        color = Color.Black,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .offset(
+                                x = with(density) { (place.col * cellW + 6f).toDp() },
+                                y = with(density) { (place.row * cellH - 18f).toDp() }
+                            )
+                            .background(Color.White.copy(alpha = 0.9f))
+                            .padding(4.dp)
+                    )
                 }
             }
         }
