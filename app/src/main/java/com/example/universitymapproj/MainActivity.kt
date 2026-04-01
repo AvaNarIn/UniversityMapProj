@@ -39,8 +39,8 @@ import kotlin.math.sqrt
 import kotlin.math.pow
 import kotlin.random.Random
 
-private const val COLS = 216
-private const val ROWS = 244
+private const val COLS = 162
+private const val ROWS = 183
 private const val IMG_W = 1170f
 private const val IMG_H = 1414f
 
@@ -203,6 +203,15 @@ data class Obshepit(
 )
 
 object MapConfig {
+    fun logLongString(tag: String, text: String) {
+        val chunkSize = 2000
+        var i = 0
+        while (i < text.length) {
+            val end = (i + chunkSize).coerceAtMost(text.length)
+            Log.d(tag, text.substring(i, end))
+            i += chunkSize
+        }
+    }
     var SAVED_GRID = ""
 
     var SAVED_FOOD_PLACES =
@@ -521,12 +530,14 @@ fun MainScreen() {
                         if (foodEditMode == FoodEditMode.DELETE) FoodEditMode.NONE else FoodEditMode.DELETE
                 }
             },
+
+
             onExportClick = {
                 val gridResult = exportGridToString(mapGrid.value)
                 val foodResult = exportFoodPlacesToString(foodPlaces)
 
                 Log.d("MAP_DATA_LENGTH", gridResult.length.toString())
-                Log.d("MAP_DATA", gridResult)
+                MapConfig.logLongString("MAP_DATA", gridResult)
                 Log.d("FOOD_PLACES", foodResult)
             },
             onClusteringToggle = {
