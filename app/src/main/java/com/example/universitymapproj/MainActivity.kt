@@ -441,6 +441,8 @@ fun MainScreen() {
     var editEnabled by remember { mutableStateOf(false) }
     var foodEditMode by remember { mutableStateOf(FoodEditMode.NONE) }
 
+    var isErasing by remember { mutableStateOf(false) }
+
     var clusteringMode by remember { mutableStateOf(false) }
     var clusterCountText by remember { mutableStateOf("3") }
     val selectedClusterPoints = remember { mutableStateListOf<ClusterPoint>() }
@@ -467,6 +469,7 @@ fun MainScreen() {
             modifier = Modifier.weight(5f),
             showGrid = gridVisible,
             editMode = editEnabled && !clusteringMode,
+            isErasing = isErasing,
             grid = mapGrid.value,
             foodPlaces = foodPlaces,
             foodEditMode = if (clusteringMode) FoodEditMode.NONE else foodEditMode,
@@ -513,6 +516,8 @@ fun MainScreen() {
             onClusterCountChange = { clusterCountText = it.filter { ch -> ch.isDigit() } },
             onGridClick = { gridVisible = !gridVisible },
             onEditClick = { if (!clusteringMode) editEnabled = !editEnabled },
+            isErasing = isErasing,
+            onToggleErasing = { isErasing = !isErasing },
             onFoodAddClick = {
                 if (!clusteringMode) {
                     foodEditMode =
@@ -586,7 +591,9 @@ fun Controls(
     onFoodDeleteClick: () -> Unit,
     onExportClick: () -> Unit,
     onClusteringToggle: () -> Unit,
-    onRunClustering: () -> Unit
+    onRunClustering: () -> Unit,
+    isErasing: Boolean,
+    onToggleErasing: () -> Unit
 ) {
     val scrollState = rememberScrollState()
 
@@ -599,6 +606,7 @@ fun Controls(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
+
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
@@ -611,6 +619,9 @@ fun Controls(
             }
             Button(onClick = onExportClick) {
                 Text("Log")
+            }
+            Button(onClick = onToggleErasing) {
+                Text(if (isErasing) "Ластик ВКЛ" else "Ластик")
             }
         }
 
@@ -665,6 +676,7 @@ fun UniversityMap(
     modifier: Modifier = Modifier,
     showGrid: Boolean,
     editMode: Boolean,
+    isErasing: Boolean,
     grid: Array<BooleanArray>,
     foodPlaces: List<Obshepit>,
     foodEditMode: FoodEditMode,
@@ -678,7 +690,6 @@ fun UniversityMap(
 ) {
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
-
     var startPoint by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var endPoint by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var path by remember { mutableStateOf<List<Pair<Int, Int>>>(emptyList()) }
@@ -745,16 +756,37 @@ fun UniversityMap(
                         offset = fixOffset(scale, offset + pan)
                     }
                 }
-                .pointerInput(editMode, screenW, screenH, offset, scale, foodPlaces, foodEditMode, clusteringMode, selectedClusterPoints) {
+                .pointerInput(editMode, isErasing, screenW, screenH, offset, scale, foodPlaces, foodEditMode, clusteringMode, selectedClusterPoints) {
                     if (editMode) {
                         detectDragGestures { change, _ ->
                             getGridCoords(change.position)?.let { (r, c) ->
-                                if (!localGrid[r][c]) {
-                                    val newGrid = localGrid.map { it.copyOf() }.toTypedArray()
-                                    newGrid[r][c] = true
-                                    localGrid = newGrid
-                                    grid[r][c] = true
-                                    onGridChanged()
+
+                                val newGrid = localGrid.map { it.copyOf() }.toTypedArray()
+
+                                if (isErasing) {
+                                    // 🧹 СТИРАНИЕ
+                                    if (localGrid[r][c]) {
+                                        newGrid[r][c] = false
+                                        localGrid = newGrid
+                                        grid[r][c] = false
+                                        onGridChanged()
+                                    }
+                                } else {
+                                    // ✏️ РИСОВАНИЕ
+                                    if (!localGrid[r][c]) {
+                                        newGrid[r][c] = true
+                                        localGrid = newGrid
+                                        grid[r][c] = true
+                                        onGridChanged()
+                                    }
+                                }
+
+                                // 💥 важно: сброс пути если стерли/поменяли клетку
+                                if ((startPoint?.first == r && startPoint?.second == c) ||
+                                    (endPoint?.first == r && endPoint?.second == c)) {
+                                    startPoint = null
+                                    endPoint = null
+                                    path = emptyList()
                                 }
                             }
                         }
