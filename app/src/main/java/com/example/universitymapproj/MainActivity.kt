@@ -43,16 +43,10 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlin.math.pow
 import kotlin.random.Random
+import androidx.compose.material3.Divider
+import androidx.compose.material3.ButtonDefaults
 
 
-private val android: Any
-    get() {
-        TODO()
-    }
-private val tasks: Any
-    get() {
-        TODO()
-    }
 private const val COLS = 162
 private const val ROWS = 183
 private const val IMG_W = 1170f
@@ -383,7 +377,7 @@ fun geoToGrid(
     val lonLeft = 84.939305
     val lonRight = 84.954786
 
-    if (userLat !in latTop..latBottom || userLon !in lonLeft..lonRight) {
+    if (userLat !in latBottom..latTop || userLon !in lonLeft..lonRight){
         return null
     }
 
@@ -397,7 +391,26 @@ fun geoToGrid(
 }
 
 
+enum class AppMode {
+    USER,
+    DEV
+}
 
+enum class AlgorithmType {
+    NONE,
+    ASTAR,
+    CLUSTERING,
+    GENETIC,
+    ANT,
+    DECISION_TREE,
+    NEURAL_NET
+}
+
+enum class DevTool {
+    NONE,
+    EDIT_MAP,
+    EDIT_PLACES
+}
 enum class FoodEditMode {
     NONE,
     ADD,
@@ -477,6 +490,112 @@ fun runKMeans(points: List<ClusterPoint>, k: Int, maxIterations: Int = 100): Lis
         )
     }
 }
+@Composable
+fun BottomMenu(
+    appMode: AppMode,
+    selectedAlgorithm: AlgorithmType,
+    devTool: DevTool,
+    onAlgorithmSelect: (AlgorithmType) -> Unit,
+    onDevToolSelect: (DevTool) -> Unit,
+    onSwitchMode: () -> Unit
+) {
+    Column {
+        Divider()
+
+        if (appMode == AppMode.USER) {
+            UserMenu(selectedAlgorithm, onAlgorithmSelect, onSwitchMode)
+        } else {
+            DevMenu(devTool, onDevToolSelect, onSwitchMode)
+        }
+    }
+}
+
+
+@Composable
+fun UserMenu(
+    selected: AlgorithmType,
+    onSelect: (AlgorithmType) -> Unit,
+    onDevClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF2F2F2))
+            .padding(6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+
+        Row {
+            AlgoBtn("A*", selected == AlgorithmType.ASTAR) {
+                onSelect(AlgorithmType.ASTAR)
+            }
+            AlgoBtn("Кластеры", selected == AlgorithmType.CLUSTERING) {
+                onSelect(AlgorithmType.CLUSTERING)
+            }
+            AlgoBtn("GA", selected == AlgorithmType.GENETIC) {
+                onSelect(AlgorithmType.GENETIC)
+            }
+            AlgoBtn("Муравьи", selected == AlgorithmType.ANT) {
+                onSelect(AlgorithmType.ANT)
+            }
+            AlgoBtn("Решение", selected == AlgorithmType.DECISION_TREE) {
+                onSelect(AlgorithmType.DECISION_TREE)
+            }
+            AlgoBtn("ИИ", selected == AlgorithmType.NEURAL_NET) {
+                onSelect(AlgorithmType.NEURAL_NET)
+            }
+        }
+
+        Button(onClick = onDevClick) {
+            Text("DEV")
+        }
+    }
+}
+
+@Composable
+fun AlgoBtn(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.padding(end = 4.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) Color(0xFF3A7AFE) else Color.LightGray
+        )
+    ) {
+        Text(text, color = Color.White)
+    }
+}
+@Composable
+fun DevMenu(
+    selected: DevTool,
+    onSelect: (DevTool) -> Unit,
+    onBack: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFFFEAEA))
+            .padding(6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+
+        Row {
+            AlgoBtn("Карта", selected == DevTool.EDIT_MAP) {
+                onSelect(DevTool.EDIT_MAP)
+            }
+            AlgoBtn("Заведения", selected == DevTool.EDIT_PLACES) {
+                onSelect(DevTool.EDIT_PLACES)
+            }
+        }
+
+        Button(onClick = onBack) {
+            Text("← USER")
+        }
+    }
+}
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -491,7 +610,7 @@ fun MainScreen() {
 
     LaunchedEffect(Unit) {
         while (true) {
-            val value = try {
+            try {
                 val location = fusedLocationClient.lastLocation.await()
                 location?.let {
                     userCell = geoToGrid(it.latitude, it.longitude)
@@ -499,7 +618,6 @@ fun MainScreen() {
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-            kotlinx.coroutines.delay(2000)
         }
     }
 
@@ -524,6 +642,35 @@ fun MainScreen() {
 
     var updateTick by remember { mutableStateOf(0) }
 
+
+    var appMode by remember { mutableStateOf(AppMode.USER) }
+    var selectedAlgorithm by remember { mutableStateOf(AlgorithmType.NONE) }
+    var devTool by remember { mutableStateOf(DevTool.NONE) }
+
+
+    val algorithmResult = when (selectedAlgorithm) {
+        AlgorithmType.ASTAR -> {
+            emptyList<Pair<Int, Int>>()
+        }
+
+        AlgorithmType.CLUSTERING -> {
+            val k = clusterCountText.toIntOrNull() ?: 0
+            if (selectedClusterPoints.isNotEmpty() && k > 0) {
+                clusteredPoints.clear()
+                clusteredPoints.addAll(runKMeans(selectedClusterPoints.toList(), k))
+            }
+            emptyList()
+        }
+
+        AlgorithmType.ANT -> {
+            val points = foodPlaces.map { Point(it.row.toDouble(), it.col.toDouble()) }
+            val result = antColonyOptimization(points)
+            result.map { it.x.toInt() to it.y.toInt() }
+        }
+
+        else -> emptyList()
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -532,18 +679,27 @@ fun MainScreen() {
         Header()
 
         UniversityMap(
+            externalPath = algorithmResult,
             modifier = Modifier.weight(5f),
             showGrid = gridVisible,
-            editMode = editEnabled && !clusteringMode,
+
+            editMode = appMode == AppMode.DEV && devTool == DevTool.EDIT_MAP,
+
             isErasing = isErasing,
             grid = mapGrid.value,
             foodPlaces = foodPlaces,
-            foodEditMode = if (clusteringMode) FoodEditMode.NONE else foodEditMode,
+
+            foodEditMode = when {
+                appMode != AppMode.DEV -> FoodEditMode.NONE
+                devTool == DevTool.EDIT_PLACES -> FoodEditMode.ADD
+                else -> FoodEditMode.NONE
+            },
+
             clusteringMode = clusteringMode,
             selectedClusterPoints = selectedClusterPoints,
             clusteredPoints = clusteredPoints,
             onGridChanged = { updateTick++ },
-            userCell = userCell, // ✅ теперь всё ок
+            userCell = userCell,
             onAddFoodPlace = { row, col ->
                 if (foodPlaces.none { it.row == row && it.col == col }) {
                     foodPlaces.add(
@@ -572,57 +728,59 @@ fun MainScreen() {
             }
         )
 
-        Controls(
-            modifier = Modifier.weight(1.4f),
-            showGrid = gridVisible,
-            editMode = editEnabled,
-            foodEditMode = foodEditMode,
-            clusteringMode = clusteringMode,
-            clusterCountText = clusterCountText,
-            selectedPointsCount = selectedClusterPoints.size,
-            onClusterCountChange = { clusterCountText = it.filter { ch -> ch.isDigit() } },
-            onGridClick = { gridVisible = !gridVisible },
-            onEditClick = { if (!clusteringMode) editEnabled = !editEnabled },
-            isErasing = isErasing,
-            onToggleErasing = { isErasing = !isErasing },
-            onFoodAddClick = {
-                if (!clusteringMode) {
-                    foodEditMode =
-                        if (foodEditMode == FoodEditMode.ADD) FoodEditMode.NONE else FoodEditMode.ADD
-                }
-            },
-            onFoodDeleteClick = {
-                if (!clusteringMode) {
-                    foodEditMode =
-                        if (foodEditMode == FoodEditMode.DELETE) FoodEditMode.NONE else FoodEditMode.DELETE
-                }
-            },
-            onExportClick = {
-                val gridResult = exportGridToString(mapGrid.value)
-                val foodResult = exportFoodPlacesToString(foodPlaces)
+        if (appMode == AppMode.DEV) {
+            Controls(
+                modifier = Modifier.weight(1.4f),
+                showGrid = gridVisible,
+                editMode = editEnabled,
+                foodEditMode = foodEditMode,
+                clusteringMode = clusteringMode,
+                clusterCountText = clusterCountText,
+                selectedPointsCount = selectedClusterPoints.size,
+                onClusterCountChange = { clusterCountText = it.filter { ch -> ch.isDigit() } },
+                onGridClick = { gridVisible = !gridVisible },
+                onEditClick = { if (!clusteringMode) editEnabled = !editEnabled },
+                isErasing = isErasing,
+                onToggleErasing = { isErasing = !isErasing },
+                onFoodAddClick = {
+                    if (!clusteringMode) {
+                        foodEditMode =
+                            if (foodEditMode == FoodEditMode.ADD) FoodEditMode.NONE else FoodEditMode.ADD
+                    }
+                },
+                onFoodDeleteClick = {
+                    if (!clusteringMode) {
+                        foodEditMode =
+                            if (foodEditMode == FoodEditMode.DELETE) FoodEditMode.NONE else FoodEditMode.DELETE
+                    }
+                },
+                onExportClick = {
+                    val gridResult = exportGridToString(mapGrid.value)
+                    val foodResult = exportFoodPlacesToString(foodPlaces)
 
-                Log.d("MAP_DATA_LENGTH", gridResult.length.toString())
-                MapConfig.logLongString("MAP_DATA", gridResult)
-                Log.d("FOOD_PLACES", foodResult)
-            },
-            onClusteringToggle = {
-                clusteringMode = !clusteringMode
-                if (!clusteringMode) {
-                    selectedClusterPoints.clear()
-                    clusteredPoints.clear()
-                } else {
-                    foodEditMode = FoodEditMode.NONE
-                    editEnabled = false
+                    Log.d("MAP_DATA_LENGTH", gridResult.length.toString())
+                    MapConfig.logLongString("MAP_DATA", gridResult)
+                    Log.d("FOOD_PLACES", foodResult)
+                },
+                onClusteringToggle = {
+                    clusteringMode = !clusteringMode
+                    if (!clusteringMode) {
+                        selectedClusterPoints.clear()
+                        clusteredPoints.clear()
+                    } else {
+                        foodEditMode = FoodEditMode.NONE
+                        editEnabled = false
+                    }
+                },
+                onRunClustering = {
+                    val k = clusterCountText.toIntOrNull() ?: 0
+                    if (selectedClusterPoints.isNotEmpty() && k > 0) {
+                        clusteredPoints.clear()
+                        clusteredPoints.addAll(runKMeans(selectedClusterPoints.toList(), k))
+                    }
                 }
-            },
-            onRunClustering = {
-                val k = clusterCountText.toIntOrNull() ?: 0
-                if (selectedClusterPoints.isNotEmpty() && k > 0) {
-                    clusteredPoints.clear()
-                    clusteredPoints.addAll(runKMeans(selectedClusterPoints.toList(), k))
-                }
-            }
-        )
+            )
+        }
     }
 }
 
@@ -739,6 +897,7 @@ fun Controls(
 @Composable
 fun UniversityMap(
     modifier: Modifier = Modifier,
+    externalPath: List<Pair<Int, Int>>,
     showGrid: Boolean,
     editMode: Boolean,
     isErasing: Boolean,
@@ -795,6 +954,7 @@ fun UniversityMap(
         val mapW = if (imgRatio > screenRatio) screenW else screenH * imgRatio
         val mapH = if (imgRatio > screenRatio) screenW / imgRatio else screenH
         val minScale = maxOf(screenW / mapW, screenH / mapH)
+        val finalPath = if (externalPath.isNotEmpty()) externalPath else path
 
         fun fixOffset(s: Float, o: Offset): Offset {
             val maxX = maxOf((mapW * s - screenW) / 2f, 0f)
@@ -947,6 +1107,13 @@ fun UniversityMap(
                     path.forEach { (r, c) ->
                         drawRect(
                             color = Color(0xFF4CAF50),
+                            topLeft = Offset(c * cw, r * ch),
+                            size = Size(cw, ch)
+                        )
+                    }
+                    externalPath.forEach { (r, c) ->
+                        drawRect(
+                            color = Color.Blue,
                             topLeft = Offset(c * cw, r * ch),
                             size = Size(cw, ch)
                         )
