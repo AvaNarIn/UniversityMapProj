@@ -1,5 +1,4 @@
 package com.example.universitymapproj
-
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
