@@ -22,7 +22,7 @@ import com.example.universitymapproj.serialization.*
 import com.example.universitymapproj.ui.*
 import com.example.universitymapproj.NeuralNetwork.*
 import java.io.File
-
+import java.time.LocalTime
 
 
 class MainActivity : ComponentActivity() {
@@ -346,6 +346,8 @@ fun MainScreen(
                     return@Controls
                 }
 
+                val startTime = java.time.LocalTime.now()
+
                 val bestRoute = buildOptimalFoodRouteGenetic(
                     userLocation = UserLocation(userRow, userCol),
                     requiredDishes = requiredDishes,
@@ -353,7 +355,10 @@ fun MainScreen(
                     grid = mapGrid.value,
                     populationSize = 20,
                     generations = 100,
-                    mutationChance = 0.15
+                    mutationChance = 0.15,
+                    startTime = startTime,
+                    speedMetersPerSecond = 5000.0 / 3600.0, // 5 км/ч
+                    stayMinutes = 30
                 )
 
                 if (bestRoute.isEmpty()) {
