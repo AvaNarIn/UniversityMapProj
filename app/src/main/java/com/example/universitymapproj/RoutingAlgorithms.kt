@@ -4,6 +4,8 @@ import com.example.universitymapproj.models.*
 import com.example.universitymapproj.pathfinding.AStarPathfinder
 import com.example.universitymapproj.pathfinding.RouteDistanceCache
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // Функция сохранения рейтингов
 fun saveRatingsToFile(file: File, ratings: List<PlaceRating>) {
@@ -111,4 +113,26 @@ fun buildLandmarkVisitOrder(selectedLandmarks: List<Landmark>): List<Landmark> {
     }
 
     return ordered
+}
+
+suspend fun buildFullPathThroughRouteAsync(
+    userLocation: UserLocation,
+    route: List<Obshepit>,
+    grid: Array<BooleanArray>
+): List<Pair<Int, Int>> = withContext(Dispatchers.Default) {
+    buildFullPathThroughRoute(userLocation, route, grid)
+}
+
+suspend fun buildFullPathThroughPointsAsync(
+    start: Pair<Int, Int>,
+    orderedPoints: List<Pair<Int, Int>>,
+    grid: Array<BooleanArray>
+): List<Pair<Int, Int>> = withContext(Dispatchers.Default) {
+    buildFullPathThroughPoints(start, orderedPoints, grid)
+}
+
+suspend fun buildLandmarkVisitOrderAsync(
+    selectedLandmarks: List<Landmark>
+): List<Landmark> = withContext(Dispatchers.Default) {
+    buildLandmarkVisitOrder(selectedLandmarks)
 }

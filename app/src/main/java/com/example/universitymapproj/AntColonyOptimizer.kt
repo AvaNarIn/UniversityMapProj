@@ -3,6 +3,8 @@ package com.example.universitymapproj.routing
 import com.example.universitymapproj.models.Point
 import kotlin.math.pow
 import kotlin.random.Random
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class AntColonyOptimizer {
     fun optimize(
@@ -146,4 +148,16 @@ class AntColonyOptimizer {
 
         return bestTour.map { points[it] }
     }
+}
+
+suspend fun AntColonyOptimizer.optimizeAsync(
+    points: List<Point>,
+    alpha: Double = 1.0,
+    beta: Double = 2.0,
+    rho: Double = 0.1,
+    Q: Double = 1.0,
+    tau0: Double = 1.0,
+    maxIterations: Int = 1000
+): List<Point> = withContext(Dispatchers.Default) {
+    optimize(points, alpha, beta, rho, Q, tau0, maxIterations)
 }

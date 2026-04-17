@@ -5,6 +5,8 @@ import com.example.universitymapproj.models.ClusterPoint
 import com.example.universitymapproj.models.ClusteredPoint
 import kotlin.math.abs
 import kotlin.math.sqrt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 fun distance(aRow: Double, aCol: Double, bRow: Double, bCol: Double): Double {
     return sqrt((aRow - bRow) * (aRow - bRow) + (aCol - bCol) * (aCol - bCol))
@@ -66,4 +68,13 @@ fun runKMeans(points: List<ClusterPoint>, k: Int, maxIterations: Int = 100): Lis
             clusterIndex = assignments[index]
         )
     }
+
+}
+
+suspend fun runKMeansAsync(
+    points: List<ClusterPoint>,
+    k: Int,
+    maxIterations: Int = 100
+): List<ClusteredPoint> = withContext(Dispatchers.Default) {
+    runKMeans(points, k, maxIterations)
 }

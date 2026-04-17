@@ -33,10 +33,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.example.universitymapproj.models.*
-import com.example.universitymapproj.pathfinding.AStarPathfinder
 import com.example.universitymapproj.NeuralNetwork.*
 import com.example.universitymapproj.LunchDecisionTreeCard
+import com.example.universitymapproj.models.*
+import com.example.universitymapproj.pathfinding.AStarVisualState
 import java.io.File
 
 enum class AppMode {
@@ -131,7 +131,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawClusterZones(
             if (r + 1 < MapConfig.ROWS && zoneIndex[r + 1][c] != here) {
                 val y = (r + 1) * cellH
                 val x0 = c * cellW
-                val x1 = (c + 1) * cellW
+                val x1 = (c + 1) * cellH
                 drawLine(borderColor, Offset(x0, y), Offset(x1, y), strokeWidth = stroke)
             }
         }
@@ -295,6 +295,23 @@ fun Controls(
 
     onChangeMode: () -> Unit,
 
+    astarMode: Boolean,
+    obstacleDrawingEnabled: Boolean,
+    astarStart: Pair<Int, Int>?,
+    astarEnd: Pair<Int, Int>?,
+    selectingStart: Boolean,
+    selectingEnd: Boolean,
+    isAstarRunning: Boolean,
+    astarVisualizationState: AStarVisualState,
+
+    onAstarModeToggle: () -> Unit,
+    onObstacleDrawingToggle: () -> Unit,
+    onSelectStartClick: () -> Unit,
+    onSelectEndClick: () -> Unit,
+    onRunAstar: () -> Unit,
+    onStopAstar: () -> Unit,
+    onClearAstar: () -> Unit,
+
     isLandscape: Boolean = false
 ) {
     val scrollState = rememberScrollState()
@@ -311,6 +328,7 @@ fun Controls(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+
         if (isDev) {
             ControlCard {
                 MainButton(if (showGrid) "Скрыть сетку" else "Показать сетку", onGridClick, isLandscape = isLandscape)
@@ -318,7 +336,8 @@ fun Controls(
                 MainButton(
                     if (editMode) "Режим просмотра" else "Редактировать карту",
                     onEditClick,
-                    isLandscape = isLandscape
+                    isLandscape = isLandscape,
+                    enabled = !astarMode
                 )
 
                 MainButton("Выгрузить лог", onExportClick, isLandscape = isLandscape)
@@ -326,7 +345,8 @@ fun Controls(
                 MainButton(
                     if (isErasing) "Ластик: ВКЛ" else "Ластик",
                     onToggleErasing,
-                    isLandscape = isLandscape
+                    isLandscape = isLandscape,
+                    enabled = !astarMode
                 )
             }
 
@@ -334,14 +354,14 @@ fun Controls(
                 MainButton(
                     if (foodEditMode == FoodEditMode.ADD) "Добавление ВКЛ" else "Добавить общепит",
                     onFoodAddClick,
-                    enabled = !clusteringMode && !foodRouteMode && !landmarkRouteMode,
+                    enabled = !clusteringMode && !foodRouteMode && !landmarkRouteMode && !astarMode,
                     isLandscape = isLandscape
                 )
 
                 MainButton(
                     if (foodEditMode == FoodEditMode.DELETE) "Удаление ВКЛ" else "Удалить общепит",
                     onFoodDeleteClick,
-                    enabled = !clusteringMode && !foodRouteMode && !landmarkRouteMode,
+                    enabled = !clusteringMode && !foodRouteMode && !landmarkRouteMode && !astarMode,
                     isLandscape = isLandscape
                 )
             }
@@ -361,8 +381,6 @@ fun Controls(
                         text = if (isTraining) "Идёт обучение..." else "Обучить нейросеть",
                         onClick = {
                             if (isTraining) return@MainButton
-
-                            Log.d("NN_BUTTON", "Train button clicked!")
                             onTrainingStart()
 
                             Thread {
@@ -418,9 +436,76 @@ fun Controls(
                     )
                 }
             }
+
+            ControlCard {
+                MainButton(
+                    if (astarMode) "A*: ВЫКЛ" else "A*: визуализация",
+                    onAstarModeToggle,
+                    isLandscape = isLandscape
+                )
+
+                if (astarMode) {
+                    Text(
+                        buildString {
+                            append("Start: ${astarStart ?: "-"}\n")
+                            append("End: ${astarEnd ?: "-"}\n")
+                            append("Open: ${astarVisualizationState.openSet.size}, Closed: ${astarVisualizationState.closedSet.size}\n")
+                            append(
+                                when {
+                                    isAstarRunning -> "Статус: идёт…"
+                                    astarVisualizationState.isNoPath -> "Статус: пути нет"
+                                    astarVisualizationState.isComplete -> "Статус: готово"
+                                    else -> "Статус: ожидание"
+                                }
+                            )
+                        },
+                        fontSize = 12.sp
+                    )
+
+                    MainButton(
+                        if (obstacleDrawingEnabled) "Препятствия: ВКЛ" else "Препятствия",
+                        onObstacleDrawingToggle,
+                        isLandscape = isLandscape
+                    )
+
+                    MainButton(
+                        if (selectingStart) "Выбор START: ВКЛ" else "Выбрать START",
+                        onSelectStartClick,
+                        isLandscape = isLandscape,
+                        enabled = !isAstarRunning
+                    )
+
+                    MainButton(
+                        if (selectingEnd) "Выбор END: ВКЛ" else "Выбрать END",
+                        onSelectEndClick,
+                        isLandscape = isLandscape,
+                        enabled = !isAstarRunning
+                    )
+
+                    MainButton(
+                        "Запустить",
+                        onRunAstar,
+                        isLandscape = isLandscape,
+                        enabled = !isAstarRunning && astarStart != null && astarEnd != null
+                    )
+
+                    MainButton(
+                        "Остановить",
+                        onStopAstar,
+                        isLandscape = isLandscape,
+                        enabled = isAstarRunning
+                    )
+
+                    MainButton(
+                        "Очистить",
+                        onClearAstar,
+                        isLandscape = isLandscape,
+                        enabled = !isAstarRunning
+                    )
+                }
+            }
         }
 
-        // Оценки
         Card(
             shape = RoundedCornerShape(20.dp),
             elevation = CardDefaults.cardElevation(6.dp),
@@ -496,13 +581,7 @@ fun Controls(
                         MainButton(
                             text = "Сохранить оценку",
                             onClick = {
-                                ratings.add(
-                                    PlaceRating(
-                                        row = selectedFoodPlace.row,
-                                        col = selectedFoodPlace.col,
-                                        rating = rating
-                                    )
-                                )
+                                ratings.add(PlaceRating(row = selectedFoodPlace.row, col = selectedFoodPlace.col, rating = rating))
                                 onSaveRatings()
                                 predictedRating = null
                                 drawingView?.clear()
@@ -520,12 +599,12 @@ fun Controls(
             }
         }
 
-        // Кластеризация
         ControlCard {
             MainButton(
                 if (clusteringMode) "Вернуться к карте" else "Кластеризация",
                 onClusteringToggle,
-                isLandscape = isLandscape
+                isLandscape = isLandscape,
+                enabled = !astarMode
             )
 
             if (clusteringMode) {
@@ -541,12 +620,12 @@ fun Controls(
             }
         }
 
-        // Маршрут по блюдам
         ControlCard {
             MainButton(
                 if (foodRouteMode) "Скрыть поиск по блюдам" else "Маршрут по блюдам",
                 onFoodRouteToggle,
-                isLandscape = isLandscape
+                isLandscape = isLandscape,
+                enabled = !astarMode
             )
 
             if (foodRouteMode || landmarkRouteMode) {
@@ -579,12 +658,12 @@ fun Controls(
             }
         }
 
-        // Маршрут по достопримечательностям
         ControlCard {
             MainButton(
                 if (landmarkRouteMode) "Скрыть маршрут по достопримечательностям" else "Маршрут по достопримечательностям",
                 onLandmarkRouteToggle,
-                isLandscape = isLandscape
+                isLandscape = isLandscape,
+                enabled = !astarMode
             )
 
             if (landmarkRouteMode) {
@@ -610,7 +689,6 @@ fun Controls(
 
                         Column {
                             Text(landmark.title, fontWeight = FontWeight.SemiBold)
-
                             if (landmark.description.isNotBlank()) {
                                 Text(landmark.description, fontSize = 12.sp, color = Color.Gray)
                             }
@@ -628,7 +706,6 @@ fun Controls(
         MainButton("Сменить режим", onChangeMode, isLandscape = isLandscape)
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Дерево решений
         LunchDecisionTreeCard(
             isDeveloper = isDev,
             foodPlaces = foodPlaces,
@@ -660,17 +737,33 @@ fun UniversityMap(
     externalPath: List<Pair<Int, Int>>,
     routeFoodPlaces: List<Obshepit>,
     userCell: Pair<Int, Int>?,
+
     onGridChanged: () -> Unit,
     onAddFoodPlace: (Int, Int) -> Unit,
     onDeleteFoodPlace: (Int, Int) -> Unit,
     onClusterPointToggle: (Int, Int) -> Unit,
-    onFoodPlaceSelected: (Obshepit?) -> Unit
+    onFoodPlaceSelected: (Obshepit?) -> Unit,
+
+    astarMode: Boolean = false,
+    obstacleDrawingEnabled: Boolean = false,
+    astarVisualState: AStarVisualState = AStarVisualState(),
+    astarStart: Pair<Int, Int>? = null,
+    astarEnd: Pair<Int, Int>? = null,
+    selectingStart: Boolean = false,
+    selectingEnd: Boolean = false,
+    onAstarStartSelected: (Pair<Int, Int>) -> Unit = {},
+    onAstarEndSelected: (Pair<Int, Int>) -> Unit = {},
+    onSelectingStartChanged: (Boolean) -> Unit = {},
+    onSelectingEndChanged: (Boolean) -> Unit = {},
+    onObstacleToggled: (Int, Int) -> Unit = { _, _ -> }
 ) {
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+
     var startPoint by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var endPoint by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var path by remember { mutableStateOf<List<Pair<Int, Int>>>(emptyList()) }
+
     var localGrid by remember { mutableStateOf(grid) }
     var selectedFoodPlaceLocal by remember { mutableStateOf<Obshepit?>(null) }
 
@@ -681,7 +774,9 @@ fun UniversityMap(
         }
     }
 
-    LaunchedEffect(selectedFoodPlaceLocal) { onFoodPlaceSelected(selectedFoodPlaceLocal) }
+    LaunchedEffect(selectedFoodPlaceLocal) {
+        onFoodPlaceSelected(selectedFoodPlaceLocal)
+    }
 
     LaunchedEffect(grid) {
         localGrid = grid.map { it.copyOf() }.toTypedArray()
@@ -740,6 +835,10 @@ fun UniversityMap(
                     }
                 }
                 .pointerInput(
+                    astarMode,
+                    obstacleDrawingEnabled,
+                    selectingStart,
+                    selectingEnd,
                     editMode,
                     isErasing,
                     screenW,
@@ -751,7 +850,7 @@ fun UniversityMap(
                     clusteringMode,
                     selectedClusterPoints
                 ) {
-                    if (editMode) {
+                    if (editMode && !astarMode) {
                         detectDragGestures { change, _ ->
                             getGridCoords(change.position)?.let { (r, c) ->
                                 val newGrid = localGrid.map { it.copyOf() }.toTypedArray()
@@ -784,6 +883,37 @@ fun UniversityMap(
                     } else {
                         detectTapGestures { tap ->
                             getGridCoords(tap)?.let { (r, c) ->
+
+                                if (astarMode) {
+                                    if (obstacleDrawingEnabled) {
+                                        val newGrid = localGrid.map { it.copyOf() }.toTypedArray()
+                                        newGrid[r][c] = !newGrid[r][c]
+                                        localGrid = newGrid
+                                        grid[r][c] = newGrid[r][c]
+                                        onGridChanged()
+                                        onObstacleToggled(r, c)
+                                        return@detectTapGestures
+                                    }
+
+                                    if (selectingStart) {
+                                        if (localGrid[r][c]) {
+                                            onAstarStartSelected(r to c)
+                                            onSelectingStartChanged(false)
+                                        }
+                                        return@detectTapGestures
+                                    }
+
+                                    if (selectingEnd) {
+                                        if (localGrid[r][c]) {
+                                            onAstarEndSelected(r to c)
+                                            onSelectingEndChanged(false)
+                                        }
+                                        return@detectTapGestures
+                                    }
+
+                                    return@detectTapGestures
+                                }
+
                                 if (clusteringMode) {
                                     onClusterPointToggle(r, c)
                                     return@detectTapGestures
@@ -813,7 +943,8 @@ fun UniversityMap(
                                                 path = emptyList()
                                             } else {
                                                 endPoint = r to c
-                                                path = AStarPathfinder(localGrid).findPath(
+                                                // оставлено как было (синхронно)
+                                                path = com.example.universitymapproj.pathfinding.AStarPathfinder(localGrid).findPath(
                                                     startPoint!!.first,
                                                     startPoint!!.second,
                                                     r,
@@ -851,6 +982,7 @@ fun UniversityMap(
                     val cw = size.width / MapConfig.COLS
                     val ch = size.height / MapConfig.ROWS
 
+                    // зоны кластеров (за всем)
                     if (clusteredPoints.isNotEmpty()) {
                         zoneIndex?.let { zones ->
                             drawClusterZones(
@@ -880,7 +1012,62 @@ fun UniversityMap(
                         }
                     }
 
-                    // путь A*
+                    if (astarMode) {
+                        // closed
+                        astarVisualState.closedSet.forEach { (rr, cc) ->
+                            drawRect(
+                                color = Color(0xFF616161).copy(alpha = 0.35f),
+                                topLeft = Offset(cc * cw, rr * ch),
+                                size = Size(cw, ch)
+                            )
+                        }
+
+                        // open
+                        astarVisualState.openSet.forEach { (rr, cc) ->
+                            drawRect(
+                                color = Color(0xFF64B5F6).copy(alpha = 0.35f),
+                                topLeft = Offset(cc * cw, rr * ch),
+                                size = Size(cw, ch)
+                            )
+                        }
+
+                        // current
+                        astarVisualState.current?.let { (rr, cc) ->
+                            drawRect(
+                                color = Color.Red.copy(alpha = 0.6f),
+                                topLeft = Offset(cc * cw, rr * ch),
+                                size = Size(cw, ch)
+                            )
+                        }
+
+                        // final path
+                        astarVisualState.path.forEach { (rr, cc) ->
+                            drawRect(
+                                color = Color(0xFF4CAF50).copy(alpha = 0.75f),
+                                topLeft = Offset(cc * cw, rr * ch),
+                                size = Size(cw, ch)
+                            )
+                        }
+
+                        // start/end markers
+                        astarStart?.let { (rr, cc) ->
+                            drawCircle(
+                                color = Color.Blue,
+                                radius = cw / 2,
+                                center = Offset(cc * cw + cw / 2, rr * ch + ch / 2)
+                            )
+                        }
+                        astarEnd?.let { (rr, cc) ->
+                            drawCircle(
+                                color = Color.Magenta,
+                                radius = cw / 2,
+                                center = Offset(cc * cw + cw / 2, rr * ch + ch / 2)
+                            )
+                        }
+                    }
+                    // ----------------------------------------
+
+                    // обычный путь A*
                     path.forEach { (r, c) ->
                         drawRect(
                             color = Color(0xFF4CAF50),
@@ -889,7 +1076,7 @@ fun UniversityMap(
                         )
                     }
 
-                    // внешний путь
+                    // внешний путь (генетика)
                     externalPath.forEach { (r, c) ->
                         drawRect(
                             color = Color(0xFF1565C0).copy(alpha = 0.85f),
@@ -943,7 +1130,8 @@ fun UniversityMap(
 
                     // достопримечательности
                     landmarks.forEach { landmark ->
-                        val color = if (landmark.id in selectedLandmarkIds) Color(0xFF9C27B0) else Color(0xFF00BCD4)
+                        val color =
+                            if (landmark.id in selectedLandmarkIds) Color(0xFF9C27B0) else Color(0xFF00BCD4)
                         drawRect(
                             color = color.copy(alpha = 0.85f),
                             topLeft = Offset(landmark.col * cw, landmark.row * ch),
@@ -960,7 +1148,7 @@ fun UniversityMap(
                         )
                     }
 
-                    // упорядоченные достопримечательности
+                    // упорядоченные landmarks
                     orderedLandmarks.forEachIndexed { index, landmark ->
                         drawRect(
                             color = if (index == 0) Color(0xFFD32F2F) else Color(0xFF673AB7),
@@ -997,7 +1185,7 @@ fun UniversityMap(
                         }
                     }
 
-                    // start/end точки A*
+                    // start/end (старый режим)
                     startPoint?.let { (r, c) ->
                         drawCircle(
                             color = Color.Blue,
@@ -1023,7 +1211,8 @@ fun UniversityMap(
                     val placeRatings = ratings.filter { it.row == place.row && it.col == place.col }
                     val avgRating = if (placeRatings.isNotEmpty()) placeRatings.map { it.rating }.average() else 0.0
 
-                    val dishesText = if (place.dishes.isNotEmpty()) place.dishes.joinToString(", ") else ""
+                    val dishesText =
+                        if (place.dishes.isNotEmpty()) place.dishes.joinToString(", ") else ""
 
                     Text(
                         text = buildString {

@@ -16,6 +16,26 @@ data class TrainingSample(
     val label: Int
 )
 
+fun preprocessBitmap(bitmap: Bitmap): FloatArray {
+    val resized = Bitmap.createScaledBitmap(bitmap, 50, 50, true)
+    val input = FloatArray(50 * 50)
+
+    for (y in 0 until 50) {
+        for (x in 0 until 50) {
+            val pixel = resized.getPixel(x, y)
+            val r = android.graphics.Color.red(pixel)
+            val g = android.graphics.Color.green(pixel)
+            val b = android.graphics.Color.blue(pixel)
+
+            val gray = (r + g + b) / 3f / 255f
+            input[y * 50 + x] = 1f - gray
+        }
+    }
+
+    Log.d("PREPROCESS", "Preprocessed bitmap: ${input.count { it > 0.5f }} black pixels")
+    return input
+}
+
 class NeuralNetwork {
     private val inputSize = 2500
     private val hiddenSize = 128
@@ -49,7 +69,7 @@ class NeuralNetwork {
         }
 
         val avgW1 = W1.sumOf { it.sum().toDouble() } / (hiddenSize * inputSize)
-        Log.d("NN_INIT", "Initialized - Avg W1: $avgW1, Avg W2: ${W2.sumOf { it.sum().toDouble() } / (outputSize * hiddenSize)}")
+        Log.d("NN_INIT", "Initialized - Avg W1: $avgW1")
     }
 
     fun predict(input: FloatArray): Int {
@@ -58,27 +78,14 @@ class NeuralNetwork {
             return 0
         }
 
-        val inputSum = input.sum()
-        val nonZero = input.count { it > 0.01f }
-
-        Log.d("NN_INPUT", "Input sum: $inputSum, non-zero: $nonZero")
-
         val (hidden, output) = forward(input)
 
-        val hiddenSum = hidden.sum()
-        val hiddenNonZero = hidden.count { it > 0f }
-        Log.d("NN_HIDDEN", "Hidden sum: $hiddenSum, active: $hiddenNonZero / $hiddenSize")
-
         if (output.any { it.isNaN() || it.isInfinite() }) {
-            Log.e("NN_ERROR", "NaN detected!")
+            Log.e("NN_ERROR", "NaN in output!")
             return 0
         }
 
         val result = output.indices.maxByOrNull { output[it] } ?: 0
-
-        Log.d("NN_OUTPUT", "Predicted: $result")
-        Log.d("NN_OUTPUT", "Probs: ${output.joinToString { "%.4f".format(it) }}")
-
         return result
     }
 
@@ -89,7 +96,8 @@ class NeuralNetwork {
             for (j in 0 until inputSize) {
                 sum += W1[i][j] * input[j]
             }
-            hidden[i] = maxOf(0f, sum)
+            // Защита от переполнения
+            hidden[i] = maxOf(0f, sum.coerceIn(-100f, 100f))
         }
 
         val output = FloatArray(outputSize)
@@ -98,7 +106,8 @@ class NeuralNetwork {
             for (j in 0 until hiddenSize) {
                 sum += W2[i][j] * hidden[j]
             }
-            output[i] = sum
+            // Защита от переполнения
+            output[i] = sum.coerceIn(-100f, 100f)
         }
 
         return Pair(hidden, softmax(output))
@@ -107,20 +116,27 @@ class NeuralNetwork {
     fun trainStep(input: FloatArray, label: Int, lr: Float): Float {
         val (hidden, output) = forward(input)
 
-        val loss = -kotlin.math.ln(output[label].toDouble() + 1e-10).toFloat()
+        val loss = -kotlin.math.ln(output[label].toDouble().coerceIn(1e-10, 1.0)).toFloat()
 
+        // Output gradient
         val dOutput = FloatArray(outputSize)
         for (i in 0 until outputSize) {
-            dOutput[i] = output[i] - if (i == label) 1f else 0f
+            dOutput[i] = (output[i] - if (i == label) 1f else 0f).coerceIn(-10f, 10f)
         }
 
+        // Update W2 and b2 с gradient clipping
         for (i in 0 until outputSize) {
             for (j in 0 until hiddenSize) {
-                W2[i][j] -= lr * dOutput[i] * hidden[j]
+                val grad = (dOutput[i] * hidden[j]).coerceIn(-10f, 10f)
+                W2[i][j] -= lr * grad
+                // Clip weights
+                W2[i][j] = W2[i][j].coerceIn(-10f, 10f)
             }
-            b2[i] -= lr * dOutput[i]
+            b2[i] -= lr * dOutput[i].coerceIn(-10f, 10f)
+            b2[i] = b2[i].coerceIn(-10f, 10f)
         }
 
+        // Hidden gradient
         val dHidden = FloatArray(hiddenSize)
         for (j in 0 until hiddenSize) {
             if (hidden[j] > 0) {
@@ -128,19 +144,25 @@ class NeuralNetwork {
                 for (i in 0 until outputSize) {
                     error += W2[i][j] * dOutput[i]
                 }
-                dHidden[j] = error
+                dHidden[j] = error.coerceIn(-10f, 10f)
             }
         }
 
+        // Update W1 and b1 с gradient clipping
         for (i in 0 until hiddenSize) {
             for (j in 0 until inputSize) {
-                W1[i][j] -= lr * dHidden[i] * input[j]
+                val grad = (dHidden[i] * input[j]).coerceIn(-10f, 10f)
+                W1[i][j] -= lr * grad
+                // Clip weights
+                W1[i][j] = W1[i][j].coerceIn(-10f, 10f)
             }
-            b1[i] -= lr * dHidden[i]
+            b1[i] -= lr * dHidden[i].coerceIn(-10f, 10f)
+            b1[i] = b1[i].coerceIn(-10f, 10f)
         }
 
         return loss
     }
+
 
     private fun softmax(x: FloatArray): FloatArray {
         val max = x.maxOrNull() ?: 0f
@@ -148,12 +170,12 @@ class NeuralNetwork {
         var sum = 0f
 
         for (i in x.indices) {
-            val expVal = exp((x[i] - max).toDouble()).toFloat()
+            val expVal = exp((x[i] - max).toDouble().coerceIn(-50.0, 50.0)).toFloat()
             exps[i] = if (expVal.isNaN() || expVal.isInfinite()) 0f else expVal
             sum += exps[i]
         }
 
-        if (sum < 1e-10f) {
+        if (sum < 1e-10f || sum.isNaN() || sum.isInfinite()) {
             return FloatArray(x.size) { 1f / x.size }
         }
 
@@ -165,6 +187,15 @@ class NeuralNetwork {
     }
 
     fun saveModel(file: File) {
+        // Проверяем на NaN перед сохранением
+        val hasNaN = W1.any { row -> row.any { it.isNaN() || it.isInfinite() } } ||
+                W2.any { row -> row.any { it.isNaN() || it.isInfinite() } }
+
+        if (hasNaN) {
+            Log.e("NN_SAVE", "Weights contain NaN/Inf! Not saving.")
+            return
+        }
+
         try {
             ObjectOutputStream(FileOutputStream(file)).use { oos ->
                 oos.writeObject(W1)
@@ -172,7 +203,7 @@ class NeuralNetwork {
                 oos.writeObject(W2)
                 oos.writeObject(b2)
             }
-            Log.d("NN_SAVE", "Saved")
+            Log.d("NN_SAVE", "Saved successfully")
         } catch (e: Exception) {
             Log.e("NN_SAVE", "Failed: ${e.message}")
         }
@@ -187,8 +218,16 @@ class NeuralNetwork {
                 b2 = ois.readObject() as FloatArray
             }
 
-            val avgW1 = W1.sumOf { it.sum().toDouble() } / (hiddenSize * inputSize)
-            Log.d("NN_LOAD", "Loaded - Avg W1: $avgW1")
+            // Проверяем загруженные веса
+            val hasNaN = W1.any { row -> row.any { it.isNaN() || it.isInfinite() } }
+
+            if (hasNaN) {
+                Log.e("NN_LOAD", "Loaded model contains NaN! Reinitializing...")
+                initializeRandomWeights()
+            } else {
+                val avgW1 = W1.sumOf { it.sum().toDouble() } / (hiddenSize * inputSize)
+                Log.d("NN_LOAD", "Loaded successfully - Avg W1: $avgW1")
+            }
         } catch (e: Exception) {
             Log.e("NN_LOAD", "Failed: ${e.message}")
             initializeRandomWeights()
@@ -283,11 +322,9 @@ class DrawingView(context: Context, attrs: AttributeSet?) : View(context, attrs)
                 val b = pixel and 0xFF
 
                 val gray = (r + g + b) / 3f / 255f
-                pixels[y * 50 + x] = 1f - gray  // Черное -> 1, Белое -> 0
+                pixels[y * 50 + x] = 1f - gray
             }
         }
-
-        Log.d("DRAW", "Sum: ${pixels.sum()}, NonZero: ${pixels.count { it > 0.01f }}")
 
         return pixels
     }
@@ -354,7 +391,6 @@ class NeuralNetworkTrainer(
         Thread {
             try {
                 onProgress("Загрузка MNIST...")
-
                 val imagesStream = context.assets.open("mnist/train-images.idx3-ubyte")
                 val labelsStream = context.assets.open("mnist/train-labels.idx1-ubyte")
 
@@ -367,120 +403,100 @@ class NeuralNetworkTrainer(
                 val numLabels = readInt(labelsStream)
 
                 if (imgMagic != 2051 || lblMagic != 2049) {
-                    onProgress("Неверный MNIST")
+                    onProgress("❌ Неверный формат")
                     imagesStream.close()
                     labelsStream.close()
                     onComplete()
                     return@Thread
                 }
 
-                onProgress("✓ $numImages изображений")
+                val useCount = minOf(20000, numImages)
+                onProgress("✓ Загрузка $useCount изображений...")
 
-                val useCount = minOf(10000, numImages)  // Только 10k для скорости
+                val allImages = Array(useCount) { FloatArray(2500) }
+                val allLabels = IntArray(useCount)
 
-                val img28 = ByteArray(28 * 28)
+                for (i in 0 until useCount) {
+                    val img28 = ByteArray(28 * 28)
+                    imagesStream.read(img28)
+                    allLabels[i] = labelsStream.read()
 
+                    val pixels28 = FloatArray(28 * 28) { idx ->
+                        (img28[idx].toInt() and 0xFF) / 255f
+                    }
+                    allImages[i] = resize28to50(pixels28)
 
-                imagesStream.read(img28)
-                val firstLabel = labelsStream.read()
-
-                val firstPixels28 = FloatArray(28 * 28) { idx ->
-                    (img28[idx].toInt() and 0xFF) / 255f
+                    if (i % 2000 == 0) {
+                        onProgress("Загружено: $i/$useCount")
+                    }
                 }
-
-                Log.d("MNIST_CHECK", "===========================================")
-                Log.d("MNIST_CHECK", "First MNIST image - Label: $firstLabel")
-                Log.d("MNIST_CHECK", "28x28 sum: ${firstPixels28.sum()}")
-                Log.d("MNIST_CHECK", "28x28 max: ${firstPixels28.maxOrNull()}")
-                Log.d("MNIST_CHECK", "28x28 non-zero: ${firstPixels28.count { it > 0.01f }}")
-                Log.d("MNIST_CHECK", "Sample pixels: ${firstPixels28.slice(350..360).joinToString { "%.2f".format(it) }}")
-
-                val first50 = resize28to50(firstPixels28)
-                Log.d("MNIST_CHECK", "50x50 sum: ${first50.sum()}")
-                Log.d("MNIST_CHECK", "50x50 non-zero: ${first50.count { it > 0.01f }}")
-                Log.d("MNIST_CHECK", "===========================================")
-
 
                 imagesStream.close()
                 labelsStream.close()
 
+                onProgress("✓ Начало обучения...")
+
                 val epochs = 5
-                var lr = 0.05f
+                var lr = 0.05f  // Оптимальный LR
 
                 for (epoch in 1..epochs) {
                     onProgress("Эпоха $epoch/$epochs...")
 
-                    val newImgStream = context.assets.open("mnist/train-images.idx3-ubyte")
-                    val newLblStream = context.assets.open("mnist/train-labels.idx1-ubyte")
-
-                    skipBytes(newImgStream, 16)
-                    skipBytes(newLblStream, 8)
-
                     var totalLoss = 0f
-                    var correct = 0
+                    val indices = (0 until useCount).shuffled()
 
-                    for (i in 0 until useCount) {
-                        newImgStream.read(img28)
-                        val label = newLblStream.read()
+                    for (idx in indices.indices) {
+                        val i = indices[idx]
+                        val pixels = allImages[i]
+                        val label = allLabels[i]
 
-                        val pixels28 = FloatArray(28 * 28) { idx ->
-                            (img28[idx].toInt() and 0xFF) / 255f
-                        }
-
-                        val pixels50 = resize28to50(pixels28)
-
-
-                        val loss = nn.trainStep(pixels50, label, lr)
+                        val loss = nn.trainStep(pixels, label, lr)
                         totalLoss += loss
+                    }
 
+                    var epochCorrect = 0
+                    val testCount = minOf(1000, useCount)
 
-                        if (i % 500 == 499) {
-                            val pred = nn.predict(pixels50)
-                            if (pred == label) correct++
-
-                            val accuracy = correct * 100f / ((i / 500) + 1)
-                            val avgLoss = totalLoss / (i + 1)
-
-                            val msg = "Эпоха $epoch | $i/$useCount | Loss: ${"%.3f".format(avgLoss)} | Acc: ${"%.1f".format(accuracy)}%"
-                            Log.d("NN_TRAIN", msg)
-                            onProgress(msg)
-
-                            if (i == 499) {
-                                Log.d("NN_TRAIN", "After 500 samples - last prediction: $pred vs label: $label")
-                            }
+                    for (i in 0 until testCount) {
+                        val pred = nn.predict(allImages[i])
+                        if (pred == allLabels[i]) {
+                            epochCorrect++
                         }
                     }
 
-                    newImgStream.close()
-                    newLblStream.close()
+                    val epochAccuracy = epochCorrect * 100f / testCount
+                    val avgLoss = totalLoss / useCount
+
+                    val msg = "✓ Эпоха $epoch | Loss: ${"%.3f".format(avgLoss)} | Acc: ${"%.1f".format(epochAccuracy)}%"
+                    Log.d("EPOCH_RESULT", msg)
+                    onProgress(msg)
+
+                    if (epoch == 1 && epochAccuracy < 15f) {
+                        Log.e("TRAIN_FAIL", "Accuracy is too low after 1st epoch: $epochAccuracy%")
+                    }
 
                     lr *= 0.9f
-
-                    val avgLoss = totalLoss / useCount
-                    onProgress("✓ Эпоха $epoch | Avg Loss: ${"%.3f".format(avgLoss)}")
-
-                    System.gc()
                 }
 
-                nn.saveModel(modelFile)
+                var finalCorrect = 0
+                val testCount = minOf(1000, useCount)
+                for (i in 0 until testCount) {
+                    val pred = nn.predict(allImages[i])
+                    if (pred == allLabels[i]) finalCorrect++
+                }
 
-                onProgress("✅ Обучение завершено!")
+                val finalAccuracy = finalCorrect * 100f / testCount
+                onProgress("✅ Обучение завершено! Точность: ${"%.1f".format(finalAccuracy)}%")
+
+                nn.saveModel(modelFile)
                 onComplete()
 
             } catch (e: Exception) {
                 Log.e("NN_TRAIN", "Error", e)
-                onProgress(" ${e.message}")
+                onProgress("❌ Ошибка: ${e.message}")
                 onComplete()
             }
         }.start()
-    }
-
-    private fun skipBytes(stream: InputStream, count: Int) {
-        var remaining = count
-        while (remaining > 0) {
-            val skipped = stream.skip(remaining.toLong())
-            remaining -= skipped.toInt()
-        }
     }
 
     private fun readInt(stream: InputStream): Int {

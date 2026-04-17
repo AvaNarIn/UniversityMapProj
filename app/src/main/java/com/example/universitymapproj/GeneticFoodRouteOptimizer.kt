@@ -5,6 +5,8 @@ import com.example.universitymapproj.pathfinding.AStarPathfinder
 import com.example.universitymapproj.pathfinding.RouteDistanceCache
 import java.time.LocalTime
 import kotlin.random.Random
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class GeneticFoodRouteOptimizer {
     fun findOptimalRoute(
@@ -378,4 +380,30 @@ class GeneticFoodRouteOptimizer {
         val length = calculateRouteLengthAStar(userLocation, optimized, distanceCache)
         return RouteIndividual(optimized, length)
     }
+}
+
+suspend fun GeneticFoodRouteOptimizer.findOptimalRouteAsync(
+    userLocation: UserLocation,
+    requiredDishes: List<String>,
+    foodPlaces: List<Obshepit>,
+    grid: Array<BooleanArray>,
+    populationSize: Int = 20,
+    generations: Int = 100,
+    mutationChance: Double = 0.15,
+    startTime: java.time.LocalTime = java.time.LocalTime.now(),
+    speedMetersPerSecond: Double = 5000.0 / 3600.0,
+    stayMinutes: Int = 30
+): List<Obshepit> = withContext(Dispatchers.Default) {
+    findOptimalRoute(
+        userLocation = userLocation,
+        requiredDishes = requiredDishes,
+        foodPlaces = foodPlaces,
+        grid = grid,
+        populationSize = populationSize,
+        generations = generations,
+        mutationChance = mutationChance,
+        startTime = startTime,
+        speedMetersPerSecond = speedMetersPerSecond,
+        stayMinutes = stayMinutes
+    )
 }
