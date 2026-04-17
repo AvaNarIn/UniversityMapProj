@@ -509,14 +509,19 @@ fun MainScreen(
                             return@Controls
                         }
 
-                        val bestRoute = buildOptimalFoodRouteGenetic(
+                        val startTime = java.time.LocalTime.now()
+                        val optimizer = com.example.universitymapproj.routing.GeneticFoodRouteOptimizer()
+                        val bestRoute = optimizer.findOptimalRoute(
                             userLocation = UserLocation(userRow, userCol),
                             requiredDishes = requiredDishes,
                             foodPlaces = foodPlaces.toList(),
                             grid = mapGrid.value,
                             populationSize = 20,
                             generations = 100,
-                            mutationChance = 0.15
+                            mutationChance = 0.15,
+                            startTime = startTime,
+                            speedMetersPerSecond = 5000.0 / 3600.0,
+                            stayMinutes = 30
                         )
 
                         if (bestRoute.isEmpty()) {
@@ -814,14 +819,19 @@ fun MainScreen(
                         return@Controls
                     }
 
-                    val bestRoute = buildOptimalFoodRouteGenetic(
+                    val startTime = java.time.LocalTime.now()
+                    val optimizer = com.example.universitymapproj.routing.GeneticFoodRouteOptimizer()
+                    val bestRoute = optimizer.findOptimalRoute(
                         userLocation = UserLocation(userRow, userCol),
                         requiredDishes = requiredDishes,
                         foodPlaces = foodPlaces.toList(),
                         grid = mapGrid.value,
                         populationSize = 20,
                         generations = 100,
-                        mutationChance = 0.15
+                        mutationChance = 0.15,
+                        startTime = startTime,
+                        speedMetersPerSecond = 5000.0 / 3600.0,
+                        stayMinutes = 30
                     )
 
                     if (bestRoute.isEmpty()) {
