@@ -1,7 +1,8 @@
-package com.example.universitymapproj.ui
+package com.example.universitymapproj
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -25,7 +26,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -33,58 +33,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.example.universitymapproj.MapConfig
-import com.example.universitymapproj.R
 import com.example.universitymapproj.models.*
 import com.example.universitymapproj.pathfinding.AStarPathfinder
 import com.example.universitymapproj.NeuralNetwork.*
+import java.io.File
 
 
-enum class AppMode {
+enum class AppMode{
     USER,
     DEVELOPER
 }
-@Composable
-fun Header() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(80.dp)
-            .background(Color(0xFF1976D2))
-            .padding(top = 24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("Навигатор Университета", color = Color.White, fontSize = 20.sp)
-    }
-}
 
-@Composable
-fun MainButton(
-    text: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true
-) {
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = Color(0xFF1976D2),
-            contentColor = Color.White
-        )
-    ) {
-        Text(
-            text = text,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-}
 
 @Composable
 fun ControlCard(content: @Composable ColumnScope.() -> Unit) {
@@ -114,27 +73,24 @@ fun DrawingCanvasView(
     )
 }
 
-fun preprocessBitmap(bitmap: Bitmap): FloatArray {
-    val resized = Bitmap.createScaledBitmap(bitmap, 50, 50, true)
-    val input = FloatArray(50 * 50)
 
-    for (y in 0 until 50) {
-        for (x in 0 until 50) {
-            val pixel = resized.getPixel(x, y)
-            val r = android.graphics.Color.red(pixel)
-            val g = android.graphics.Color.green(pixel)
-            val b = android.graphics.Color.blue(pixel)
-
-            val gray = (r + g + b) / 3f / 255f
-            input[y * 50 + x] = 1f - gray
-        }
-    }
-    return input
-}
 
 @Composable
 fun Controls(
+    context: Context,
     appMode: AppMode,
+    isTraining: Boolean,
+    trainingProgress: String,
+    collectingMode: Boolean,
+    currentLabel: Int,
+    trainingSamples: MutableList<TrainingSample>,
+    modelFile: File,
+    onTrainingStart: () -> Unit,
+    onTrainingEnd: () -> Unit,
+    onProgressUpdate: (String) -> Unit,
+    onCollectingModeToggle: () -> Unit,
+    onLabelChange: (Int) -> Unit,
+    onSampleAdd: (TrainingSample) -> Unit,
     neuralNetwork: NeuralNetwork,
     ratings: MutableList<PlaceRating>,
     onSaveRatings: () -> Unit,
@@ -230,6 +186,95 @@ fun Controls(
                     enabled = !clusteringMode && !foodRouteMode && !landmarkRouteMode
                 )
             }
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.cardElevation(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Обучение нейросети", fontWeight = FontWeight.Bold)
+
+                    MainButton(
+                        text = if (isTraining) "Идёт обучение..." else "Обучить нейросеть",
+                        onClick = {
+                            if (isTraining) return@MainButton
+
+                            Log.d("NN_BUTTON", "Train button clicked!")
+                            onTrainingStart()
+
+                            Thread {
+                                try {
+                                    Log.d("NN_THREAD", "Thread started")
+
+                                    // Удаляем старую модель
+                                    if (modelFile.exists()) {
+                                        modelFile.delete()
+                                        Log.d("NN_THREAD", "Old model deleted")
+                                    }
+
+                                    onProgressUpdate("Начинаем обучение...")
+                                    Thread.sleep(500)
+
+                                    // Создаём тренер
+                                    val trainer = NeuralNetworkTrainer(
+                                        context = context,
+                                        onProgress = { msg ->
+                                            Log.d("NN_PROGRESS", msg)
+                                            onProgressUpdate(msg)
+                                        },
+                                        onComplete = {
+                                            Log.d("NN_COMPLETE", "Training completed callback")
+                                            // Загружаем в основную сеть
+                                            try {
+                                                neuralNetwork.loadModel(modelFile)
+                                                neuralNetwork.markAsTrained()
+                                                onProgressUpdate("✅ Модель загружена!")
+                                            } catch (e: Exception) {
+                                                Log.e("NN_LOAD", "Failed to load: ${e.message}")
+                                                onProgressUpdate("Ошибка загрузки: ${e.message}")
+                                            }
+                                            onTrainingEnd()
+                                        }
+                                    )
+
+                                    Log.d("NN_THREAD", "Calling trainer.train()")
+                                    trainer.train()
+
+                                } catch (e: Exception) {
+                                    Log.e("NN_ERROR", "Error in training thread: ${e.message}", e)
+                                    onProgressUpdate("Критическая ошибка: ${e.message}")
+                                    onTrainingEnd()
+                                }
+                            }.start()
+                        },
+                        enabled = !isTraining
+                    )
+
+                    if (trainingProgress.isNotBlank()) {
+                        Text(
+                            trainingProgress,
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+
+                    MainButton(
+                        text = "Сбросить модель",
+                        onClick = {
+                            if (modelFile.exists()) {
+                                modelFile.delete()
+                                Log.d("NN_RESET", "Model deleted")
+                            }
+                            neuralNetwork.initializeRandomWeights()
+                            onProgressUpdate("Модель сброшена")
+                        }
+                    )
+                }
+            }
         }
 
         Card(
@@ -269,8 +314,8 @@ fun Controls(
                     ) {
                         DrawingCanvasView(
                             modifier = Modifier
-                                .size(50.dp)
-                                .background(Color.LightGray, RoundedCornerShape(8.dp))
+                                .size(200.dp)
+                                .background(Color.White, RoundedCornerShape(8.dp))
                                 .clipToBounds(),
 
                             onReady = { drawingView = it }
@@ -292,6 +337,7 @@ fun Controls(
                                     }
                                     if (bitmap != null) {
                                         val input = preprocessBitmap(bitmap)
+                                        Log.d("NN_DEBUG", "Input size: ${input.size}")
                                         predictedRating = neuralNetwork.predict(input)
                                     }
                                 }
@@ -321,7 +367,7 @@ fun Controls(
                         MainButton(
                             text = "Сохранить оценку",
                             onClick = {
-                                ratings.removeAll { it.row == selectedFoodPlace.row && it.col == selectedFoodPlace.col }
+
                                 ratings.add(PlaceRating(row = selectedFoodPlace.row, col = selectedFoodPlace.col, rating = rating))
                                 onSaveRatings()
                                 predictedRating = null
@@ -457,6 +503,490 @@ fun Controls(
     }
 }
 
+
+@Composable
+fun Header() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(80.dp)
+            .background(Color(0xFF1976D2))
+            .padding(top = 24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text("Навигатор Университета", color = Color.White, fontSize = 20.sp)
+    }
+}
+
+@Composable
+
+fun MainButton(
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    isLandscape: Boolean = false
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color(0xFF1976D2),
+            contentColor = Color.White
+        )
+    ) {
+        Text(
+            text = text,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()   // текст растягивается на всю ширину кнопки
+        )
+    }
+}
+
+@Composable
+fun Controls(
+    context: Context,
+    appMode: AppMode,
+    isTraining: Boolean,
+    trainingProgress: String,
+    collectingMode: Boolean,
+    currentLabel: Int,
+    trainingSamples: MutableList<TrainingSample>,
+    modelFile: File,
+    onTrainingStart: () -> Unit,
+    onTrainingEnd: () -> Unit,
+    onProgressUpdate: (String) -> Unit,
+    onCollectingModeToggle: () -> Unit,
+    onLabelChange: (Int) -> Unit,
+    onSampleAdd: (TrainingSample) -> Unit,
+    neuralNetwork: NeuralNetwork,
+    ratings: MutableList<PlaceRating>,
+    onSaveRatings: () -> Unit,
+    selectedFoodPlace: Obshepit?,
+    modifier: Modifier,
+    showGrid: Boolean,
+    editMode: Boolean,
+    foodEditMode: FoodEditMode,
+    clusteringMode: Boolean,
+    foodRouteMode: Boolean,
+    landmarkRouteMode: Boolean,
+    clusterCountText: String,
+    selectedPointsCount: Int,
+    userRowText: String,
+    userColText: String,
+    dishesText: String,
+    routeInfoText: String,
+    landmarks: List<Landmark>,
+    selectedLandmarkIds: List<Int>,
+    landmarkRouteInfo: String,
+    onClusterCountChange: (String) -> Unit,
+    onUserRowChange: (String) -> Unit,
+    onUserColChange: (String) -> Unit,
+    onDishesChange: (String) -> Unit,
+    onGridClick: () -> Unit,
+    onEditClick: () -> Unit,
+    onFoodAddClick: () -> Unit,
+    onFoodDeleteClick: () -> Unit,
+    onExportClick: () -> Unit,
+    onClusteringToggle: () -> Unit,
+    onRunClustering: () -> Unit,
+    onFoodRouteToggle: () -> Unit,
+    onRunFoodRoute: () -> Unit,
+    onClearFoodRoute: () -> Unit,
+    onLandmarkRouteToggle: () -> Unit,
+    onLandmarkSelectionToggle: (Int) -> Unit,
+    onRunLandmarkRoute: () -> Unit,
+    onClearLandmarkRoute: () -> Unit,
+    isErasing: Boolean,
+    onToggleErasing: () -> Unit,
+    onChangeMode: () -> Unit,
+    isLandscape: Boolean = false // Новый параметр
+) {
+    val scrollState = rememberScrollState()
+    val isDev = appMode == AppMode.DEVELOPER
+    val nn = neuralNetwork
+    var drawingView by remember { mutableStateOf<DrawingView?>(null) }
+    var predictedRating by remember { mutableStateOf<Int?>(null) }
+
+    Column(
+        modifier = modifier
+            .then(if (isLandscape) Modifier.fillMaxHeight() else Modifier.fillMaxWidth())
+            .background(Color(0xFFF5F7FA))
+            .verticalScroll(scrollState)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (isDev) {
+            ControlCard {
+                MainButton(
+                    if (showGrid) "Скрыть сетку" else "Показать сетку",
+                    onGridClick,
+                    isLandscape = isLandscape
+                )
+
+                MainButton(
+                    if (editMode) "Режим просмотра" else "Редактировать карту",
+                    onEditClick,
+                    isLandscape = isLandscape
+                )
+
+                MainButton("Выгрузить лог", onExportClick, isLandscape = isLandscape)
+
+                MainButton(
+                    if (isErasing) "Ластик: ВКЛ" else "Ластик",
+                    onToggleErasing,
+                    isLandscape = isLandscape
+                )
+            }
+
+            ControlCard {
+                MainButton(
+                    if (foodEditMode == FoodEditMode.ADD)
+                        "Добавление ВКЛ"
+                    else
+                        "Добавить общепит",
+                    onFoodAddClick,
+                    enabled = !clusteringMode && !foodRouteMode && !landmarkRouteMode,
+                    isLandscape = isLandscape
+                )
+
+                MainButton(
+                    if (foodEditMode == FoodEditMode.DELETE)
+                        "Удаление ВКЛ"
+                    else
+                        "Удалить общепит",
+                    onFoodDeleteClick,
+                    enabled = !clusteringMode && !foodRouteMode && !landmarkRouteMode,
+                    isLandscape = isLandscape
+                )
+            }
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.cardElevation(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Обучение нейросети", fontWeight = FontWeight.Bold)
+
+                    MainButton(
+                        text = if (isTraining) "Идёт обучение..." else "Обучить нейросеть",
+                        onClick = {
+                            if (isTraining) return@MainButton
+
+                            Log.d("NN_BUTTON", "Train button clicked!")
+                            onTrainingStart()
+
+                            Thread {
+                                try {
+                                    Log.d("NN_THREAD", "Thread started")
+
+                                    // Удаляем старую модель
+                                    if (modelFile.exists()) {
+                                        modelFile.delete()
+                                        Log.d("NN_THREAD", "Old model deleted")
+                                    }
+
+                                    onProgressUpdate("Начинаем обучение...")
+                                    Thread.sleep(500)
+
+                                    // Создаём тренер
+                                    val trainer = NeuralNetworkTrainer(
+                                        context = context,
+                                        onProgress = { msg ->
+                                            Log.d("NN_PROGRESS", msg)
+                                            onProgressUpdate(msg)
+                                        },
+                                        onComplete = {
+                                            Log.d("NN_COMPLETE", "Training completed callback")
+                                            // Загружаем в основную сеть
+                                            try {
+                                                neuralNetwork.loadModel(modelFile)
+                                                neuralNetwork.markAsTrained()
+                                                onProgressUpdate("✅ Модель загружена!")
+                                            } catch (e: Exception) {
+                                                Log.e("NN_LOAD", "Failed to load: ${e.message}")
+                                                onProgressUpdate("Ошибка загрузки: ${e.message}")
+                                            }
+                                            onTrainingEnd()
+                                        }
+                                    )
+
+                                    Log.d("NN_THREAD", "Calling trainer.train()")
+                                    trainer.train()
+
+                                } catch (e: Exception) {
+                                    Log.e("NN_ERROR", "Error in training thread: ${e.message}", e)
+                                    onProgressUpdate("Критическая ошибка: ${e.message}")
+                                    onTrainingEnd()
+                                }
+                            }.start()
+                        },
+                        enabled = !isTraining,
+                        isLandscape = isLandscape
+                    )
+
+                    if (trainingProgress.isNotBlank()) {
+                        Text(
+                            trainingProgress,
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+
+                    MainButton(
+                        text = "Сбросить модель",
+                        onClick = {
+                            if (modelFile.exists()) {
+                                modelFile.delete()
+                                Log.d("NN_RESET", "Model deleted")
+                            }
+                            neuralNetwork.initializeRandomWeights()
+                            onProgressUpdate("Модель сброшена")
+                        },
+                        isLandscape = isLandscape
+                    )
+                }
+            }
+        }
+
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            elevation = CardDefaults.cardElevation(6.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (selectedFoodPlace != null) {
+                    Text(
+                        "Оценка для: ${selectedFoodPlace.title}",
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    val avgRating = ratings
+                        .filter { it.row == selectedFoodPlace.row && it.col == selectedFoodPlace.col }
+                        .map { it.rating }
+                        .average()
+                        .let { if (it.isNaN()) 0.0 else it }
+
+                    if (avgRating > 0) {
+                        Text(
+                            "⭐ Текущий рейтинг: ${String.format("%.1f", avgRating)}",
+                            color = Color(0xFF1976D2),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Text("Нарисуйте цифру (1-9):", fontSize = 12.sp)
+
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        DrawingCanvasView(
+                            modifier = Modifier
+                                .size(200.dp)
+                                .background(Color.White, RoundedCornerShape(8.dp))
+                                .clipToBounds(),
+
+                            onReady = { drawingView = it }
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                drawingView?.let { view ->
+                                    val bitmap = (view as? android.view.View)?.let { v ->
+                                        val bmp = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+                                        val canvas = android.graphics.Canvas(bmp)
+                                        v.draw(canvas)
+                                        bmp
+                                    }
+                                    if (bitmap != null) {
+                                        val input = preprocessBitmap(bitmap)
+                                        Log.d("NN_DEBUG", "Input size: ${input.size}")
+                                        predictedRating = neuralNetwork.predict(input)
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Распознать")
+                        }
+                        Button(
+                            onClick = {
+                                drawingView?.clear()
+                                predictedRating = null
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Очистить")
+                        }
+                    }
+
+                    predictedRating?.let { rating ->
+                        Text(
+                            "Распознано: $rating",
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+
+                        MainButton(
+                            text = "Сохранить оценку",
+                            onClick = {
+
+                                ratings.add(PlaceRating(row = selectedFoodPlace.row, col = selectedFoodPlace.col, rating = rating))
+                                onSaveRatings()
+                                predictedRating = null
+                                drawingView?.clear()
+                            },
+                            isLandscape = isLandscape
+                        )
+                    }
+                } else {
+                    Text(
+                        "Выберите заведение на карте, чтобы оставить оценку",
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+
+        ControlCard {
+            MainButton(
+                if (clusteringMode) "Вернуться к карте" else "Кластеризация",
+                onClusteringToggle,
+                isLandscape = isLandscape
+            )
+
+            if (clusteringMode) {
+                OutlinedTextField(
+                    value = clusterCountText,
+                    onValueChange = onClusterCountChange,
+                    label = { Text("Количество кластеров K") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text("Выбрано точек: $selectedPointsCount")
+
+                MainButton("Запустить K-средних", onRunClustering, isLandscape = isLandscape)
+            }
+        }
+
+        ControlCard {
+            MainButton(
+                if (foodRouteMode) "Скрыть поиск по блюдам" else "Маршрут по блюдам",
+                onFoodRouteToggle,
+                isLandscape = isLandscape
+            )
+
+            if (foodRouteMode || landmarkRouteMode) {
+                OutlinedTextField(
+                    value = userRowText,
+                    onValueChange = onUserRowChange,
+                    label = { Text("Строка пользователя") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = userColText,
+                    onValueChange = onUserColChange,
+                    label = { Text("Столбец пользователя") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            if (foodRouteMode) {
+                OutlinedTextField(
+                    value = dishesText,
+                    onValueChange = onDishesChange,
+                    label = { Text("Блюда через запятую") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                MainButton("Построить", onRunFoodRoute, isLandscape = isLandscape)
+                MainButton("Очистить", onClearFoodRoute, isLandscape = isLandscape)
+
+                if (routeInfoText.isNotBlank()) {
+                    Text(routeInfoText)
+                }
+            }
+        }
+
+        ControlCard {
+            MainButton(
+                if (landmarkRouteMode)
+                    "Скрыть маршрут по достопримечательностям"
+                else
+                    "Маршрут по достопримечательностям",
+                onLandmarkRouteToggle,
+                isLandscape = isLandscape
+            )
+
+            if (landmarkRouteMode) {
+                Text("Выберите достопримечательности:", fontWeight = FontWeight.Bold)
+
+                landmarks.forEach { landmark ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = landmark.id in selectedLandmarkIds,
+                                onValueChange = { onLandmarkSelectionToggle(landmark.id) }
+                            )
+                            .padding(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = landmark.id in selectedLandmarkIds,
+                            onCheckedChange = null
+                        )
+
+                        Spacer(Modifier.width(8.dp))
+
+                        Column {
+                            Text(landmark.title, fontWeight = FontWeight.SemiBold)
+
+                            if (landmark.description.isNotBlank()) {
+                                Text(
+                                    landmark.description,
+                                    fontSize = 12.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    }
+                }
+
+                MainButton("Построить", onRunLandmarkRoute, isLandscape = isLandscape)
+                MainButton("Очистить", onClearLandmarkRoute, isLandscape = isLandscape)
+
+                if (landmarkRouteInfo.isNotBlank()) {
+                    Text(landmarkRouteInfo)
+                }
+            }
+        }
+
+        MainButton("Сменить режим", onChangeMode, isLandscape = isLandscape)
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
 @Composable
 fun UniversityMap(
     modifier: Modifier = Modifier,
@@ -607,7 +1137,8 @@ fun UniversityMap(
                                 when (foodEditMode) {
                                     FoodEditMode.ADD -> {
                                         onAddFoodPlace(r, c)
-                                        val newPlace = foodPlaces.find { it.row == r && it.col == c }
+                                        val newPlace =
+                                            foodPlaces.find { it.row == r && it.col == c }
                                         selectedFoodPlaceLocal = newPlace
                                     }
 
@@ -619,7 +1150,8 @@ fun UniversityMap(
                                     }
 
                                     FoodEditMode.NONE -> {
-                                        val clickedFoodPlace = foodPlaces.find { it.row == r && it.col == c }
+                                        val clickedFoodPlace =
+                                            foodPlaces.find { it.row == r && it.col == c }
                                         selectedFoodPlaceLocal = clickedFoodPlace
 
                                         if (localGrid[r][c]) {
@@ -820,9 +1352,11 @@ fun UniversityMap(
                     val cellH = mapH / MapConfig.ROWS
 
                     val placeRatings = ratings.filter { it.row == place.row && it.col == place.col }
-                    val avgRating = if (placeRatings.isNotEmpty()) placeRatings.map { it.rating }.average() else 0.0
+                    val avgRating = if (placeRatings.isNotEmpty()) placeRatings.map { it.rating }
+                        .average() else 0.0
 
-                    val dishesText = if (place.dishes.isNotEmpty()) place.dishes.joinToString(", ") else ""
+                    val dishesText =
+                        if (place.dishes.isNotEmpty()) place.dishes.joinToString(", ") else ""
 
                     Text(
                         text = buildString {

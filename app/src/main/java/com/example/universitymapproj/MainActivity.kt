@@ -1,75 +1,129 @@
 package com.example.universitymapproj
 
+import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
 import com.example.universitymapproj.models.*
 import com.example.universitymapproj.routing.*
 import com.example.universitymapproj.clustering.runKMeans
 import com.example.universitymapproj.serialization.*
-import com.example.universitymapproj.ui.*
 import com.example.universitymapproj.NeuralNetwork.*
 import java.io.File
-
-
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.example.universitymapproj.R
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+
+        splashScreen.setKeepOnScreenCondition { false }
+        File(filesDir, "model.dat").delete()
         enableEdgeToEdge()
         setContent {
-            var appMode by remember { mutableStateOf<AppMode?>(null) }
+            var appModeString by rememberSaveable { mutableStateOf<String?>(null) }
+            val appMode = appModeString?.let { AppMode.valueOf(it) }
 
             if (appMode == null) {
                 ModeSelectionScreen { selected ->
-                    appMode = selected
+                    appModeString = selected.name
                 }
             } else {
                 MainScreen(
-                    appMode = appMode!!,
-                    onChangeMode = { appMode = null }
+                    appMode = appMode,
+                    onChangeMode = { appModeString = null }
                 )
             }
         }
     }
 }
 
+fun preprocessBitmap(bitmap: Bitmap): FloatArray {
+    val resized = Bitmap.createScaledBitmap(bitmap, 50, 50, true)
+    val input = FloatArray(50 * 50)
+
+    for (y in 0 until 50) {
+        for (x in 0 until 50) {
+            val pixel = resized.getPixel(x, y)
+            val r = android.graphics.Color.red(pixel)
+            val g = android.graphics.Color.green(pixel)
+            val b = android.graphics.Color.blue(pixel)
+
+            val gray = (r + g + b) / 3f / 255f
+            input[y * 50 + x] = 1f - gray  // Черный = 1, Белый = 0
+        }
+    }
+
+    Log.d("PREPROCESS", "Preprocessed bitmap: ${input.count { it > 0.5f }} black pixels")
+    return input
+}
+
 @Composable
 fun ModeSelectionScreen(onModeSelected: (AppMode) -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.White),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+    Box(
+        modifier = Modifier.fillMaxSize()
     ) {
-        Text("Выберите режим", fontSize = 22.sp)
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Image(
+            painter = painterResource(id = R.drawable.splash_screen),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
 
-        Button(onClick = { onModeSelected(AppMode.USER) }) {
-            Text("Пользователь")
-        }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                "Выберите режим",
+                fontSize = 22.sp,
+                color = Color.White,
+                modifier = Modifier.padding(bottom = 20.dp)
+            )
 
-        Spacer(modifier = Modifier.height(12.dp))
+            MainButton(
+                "Пользователь",
+                onClick = {onModeSelected(AppMode.USER)}
+            )
 
-        Button(onClick = { onModeSelected(AppMode.DEVELOPER) }) {
-            Text("Разработчик")
+            Spacer(modifier = Modifier.height(12.dp))
+
+            MainButton(
+                "Разработчик",
+                onClick = { onModeSelected(AppMode.DEVELOPER) }
+
+            )
         }
     }
 }
+
 
 @Composable
 fun MainScreen(
@@ -77,6 +131,9 @@ fun MainScreen(
     onChangeMode: () -> Unit
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
     var selectedFoodPlace by remember { mutableStateOf<Obshepit?>(null) }
     var gridVisible by remember { mutableStateOf(false) }
     var editEnabled by remember { mutableStateOf(false) }
@@ -88,12 +145,33 @@ fun MainScreen(
     val selectedClusterPoints = remember { mutableStateListOf<ClusterPoint>() }
     val clusteredPoints = remember { mutableStateListOf<ClusteredPoint>() }
 
-    val nn = remember { NeuralNetwork() }
-    val modelFile = remember { File(context.filesDir, "model.dat") }
+    var pendingNewFoodPlace by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var showNewFoodDialog by remember { mutableStateOf(false) }
 
+    var tempTitle by remember { mutableStateOf("Новый общепит") }
+    var tempDescription by remember { mutableStateOf("Описание") }
+    var tempWorkingHours by remember { mutableStateOf("08:00-18:00") }
+    var tempType by remember { mutableStateOf("Кафе") }
+    var tempDishesText by remember { mutableStateOf("Блюдо1, Блюдо2") }
+    val modelFile = remember { File(context.filesDir, "model.dat") }
+    var isTraining by remember { mutableStateOf(false) }
+    var trainingProgress by remember { mutableStateOf("") }
+    var collectingMode by remember { mutableStateOf(false) }
+    var currentLabel by remember { mutableStateOf(1) }
+    val trainingSamples = remember { mutableStateListOf<TrainingSample>() }
+    LaunchedEffect(Unit) {
+        neuralNetwork.loadIfExists(modelFile)
+    }
     LaunchedEffect(Unit) {
         if (modelFile.exists()) {
-            nn.loadModel(modelFile)
+            try {
+                neuralNetwork.loadModel(modelFile)
+                trainingProgress = "Модель загружена из файла"
+            } catch (e: Exception) {
+                trainingProgress = "Ошибка загрузки модели"
+            }
+        } else {
+            trainingProgress = "Файл модели не найден"
         }
     }
 
@@ -156,300 +234,736 @@ fun MainScreen(
         saveRatingsToFile(ratingsFile, ratings)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.White)
-    ) {
-        Header()
-
-        UniversityMap(
-            ratings = ratings,
-            editMode = appMode == AppMode.DEVELOPER &&
-                    editEnabled &&
-                    !clusteringMode &&
-                    !foodRouteMode &&
-                    !landmarkRouteMode,
-            modifier = Modifier.weight(5f),
-            showGrid = gridVisible,
-            isErasing = isErasing,
-            grid = mapGrid.value,
-            foodPlaces = foodPlaces,
-            landmarks = landmarks,
-            selectedLandmarkIds = selectedLandmarkIds,
-            landmarkRoutePath = landmarkRoutePath,
-            orderedLandmarks = orderedLandmarks,
-            foodEditMode = if (clusteringMode || foodRouteMode || landmarkRouteMode) FoodEditMode.NONE else foodEditMode,
-            clusteringMode = clusteringMode,
-            selectedClusterPoints = selectedClusterPoints,
-            clusteredPoints = clusteredPoints,
-            externalPath = geneticFullPath,
-            routeFoodPlaces = geneticRoutePlaces,
-            userCell = manualUserCell,
-            onGridChanged = { updateTick++ },
-            onAddFoodPlace = { row, col ->
-                if (foodPlaces.none { it.row == row && it.col == col }) {
-                    foodPlaces.add(
-                        Obshepit(
-                            row = row,
-                            col = col,
-                            title = "Новый общепит",
-                            description = "Описание",
-                            workingHours = "08:00-18:00",
-                            type = "Кафе",
-                            dishes = listOf("Блюдо")
-                        )
+    if (showNewFoodDialog) {
+        Dialog(onDismissRequest = {
+            showNewFoodDialog = false
+            pendingNewFoodPlace = null
+        }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Добавление нового общепита",
+                        fontSize = 20.sp,
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
+
+                    OutlinedTextField(
+                        value = tempTitle,
+                        onValueChange = { tempTitle = it },
+                        label = { Text("Название") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = tempDescription,
+                        onValueChange = { tempDescription = it },
+                        label = { Text("Описание") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = tempWorkingHours,
+                        onValueChange = { tempWorkingHours = it },
+                        label = { Text("Часы работы") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = tempType,
+                        onValueChange = { tempType = it },
+                        label = { Text("Тип заведения") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = tempDishesText,
+                        onValueChange = { tempDishesText = it },
+                        label = { Text("Блюда (через запятую)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            onClick = {
+                                showNewFoodDialog = false
+                                pendingNewFoodPlace = null
+                            }
+                        ) {
+                            Text("Отмена")
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Button(
+                            onClick = {
+                                pendingNewFoodPlace?.let { (row, col) ->
+                                    val dishes = tempDishesText
+                                        .split(",", ";", "\n")
+                                        .map { it.trim() }
+                                        .filter { it.isNotBlank() }
+
+                                    foodPlaces.add(
+                                        Obshepit(
+                                            row = row,
+                                            col = col,
+                                            title = tempTitle.ifBlank { "Новый общепит" },
+                                            description = tempDescription.ifBlank { "Описание" },
+                                            workingHours = tempWorkingHours.ifBlank { "08:00-18:00" },
+                                            type = tempType.ifBlank { "Кафе" },
+                                            dishes = dishes.ifEmpty { listOf("Блюдо") }
+                                        )
+                                    )
+                                }
+
+                                tempTitle = "Новый общепит"
+                                tempDescription = "Описание"
+                                tempWorkingHours = "08:00-18:00"
+                                tempType = "Кафе"
+                                tempDishesText = "Блюдо1, Блюдо2"
+
+                                showNewFoodDialog = false
+                                pendingNewFoodPlace = null
+                            }
+                        ) {
+                            Text("Добавить")
+                        }
+                    }
                 }
-            },
-            onDeleteFoodPlace = { row, col ->
-                foodPlaces.removeAll { it.row == row && it.col == col }
-            },
-            onClusterPointToggle = { row, col ->
-                val existing = selectedClusterPoints.indexOfFirst { it.row == row && it.col == col }
-                if (existing >= 0) selectedClusterPoints.removeAt(existing)
-                else selectedClusterPoints.add(ClusterPoint(row, col))
-                clusteredPoints.clear()
-            },
-            onFoodPlaceSelected = { foodPlace ->
-                selectedFoodPlace = foodPlace
             }
-        )
+        }
+    }
 
-        Controls(
-            appMode = appMode,
-            ratings = ratings,
-            neuralNetwork = nn,
-            onSaveRatings = saveRatings,
-            selectedFoodPlace = selectedFoodPlace,
-            onChangeMode = onChangeMode,
-            modifier = Modifier.weight(2.8f),
-            showGrid = gridVisible,
-            editMode = editEnabled,
-            foodEditMode = foodEditMode,
-            clusteringMode = clusteringMode,
-            foodRouteMode = foodRouteMode,
-            landmarkRouteMode = landmarkRouteMode,
-            clusterCountText = clusterCountText,
-            selectedPointsCount = selectedClusterPoints.size,
-            userRowText = userRowText,
-            userColText = userColText,
-            dishesText = dishesText,
-            routeInfoText = routeInfoText,
-            landmarks = landmarks,
-            selectedLandmarkIds = selectedLandmarkIds,
-            landmarkRouteInfo = landmarkRouteInfo,
-            onClusterCountChange = { clusterCountText = it.filter { ch -> ch.isDigit() } },
-            onUserRowChange = {
-                userRowText = it.filter { ch -> ch.isDigit() }
-                val r = userRowText.toIntOrNull()
-                val c = userColText.toIntOrNull()
-                manualUserCell =
-                    if (r != null && c != null && r in 0 until MapConfig.ROWS && c in 0 until MapConfig.COLS) r to c else null
-            },
-            onUserColChange = {
-                userColText = it.filter { ch -> ch.isDigit() }
-                val r = userRowText.toIntOrNull()
-                val c = userColText.toIntOrNull()
-                manualUserCell =
-                    if (r != null && c != null && r in 0 until MapConfig.ROWS && c in 0 until MapConfig.COLS) r to c else null
-            },
-            onDishesChange = { dishesText = it },
-            onGridClick = { gridVisible = !gridVisible },
-            onEditClick = {
-                if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) editEnabled =
-                    !editEnabled
-            },
-            isErasing = isErasing,
-            onToggleErasing = { isErasing = !isErasing },
-            onFoodAddClick = {
-                if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) {
-                    foodEditMode =
-                        if (foodEditMode == FoodEditMode.ADD) FoodEditMode.NONE else FoodEditMode.ADD
-                }
-            },
-            onFoodDeleteClick = {
-                if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) {
-                    foodEditMode =
-                        if (foodEditMode == FoodEditMode.DELETE) FoodEditMode.NONE else FoodEditMode.DELETE
-                }
-            },
-            onExportClick = {
-                val gridResult = exportGridToString(mapGrid.value)
-                val foodResult = exportFoodPlacesToString(foodPlaces)
 
-                android.util.Log.d("MAP_DATA_LENGTH", gridResult.length.toString())
-                MapConfig.logLongString("MAP_DATA", gridResult)
-                android.util.Log.d("FOOD_PLACES", foodResult)
-            },
-            onClusteringToggle = {
-                clusteringMode = !clusteringMode
-                if (!clusteringMode) {
-                    selectedClusterPoints.clear()
+    if (isLandscape) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White)
+        ) {
+            Header()
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White)
+            ) {
+                UniversityMap(
+                    ratings = ratings,
+                    editMode = appMode == AppMode.DEVELOPER &&
+                            editEnabled &&
+                            !clusteringMode &&
+                            !foodRouteMode &&
+                            !landmarkRouteMode,
+                    modifier = Modifier.weight(1f),
+                    showGrid = gridVisible,
+                    isErasing = isErasing,
+                    grid = mapGrid.value,
+                    foodPlaces = foodPlaces,
+                    landmarks = landmarks,
+                    selectedLandmarkIds = selectedLandmarkIds,
+                    landmarkRoutePath = landmarkRoutePath,
+                    orderedLandmarks = orderedLandmarks,
+                    foodEditMode = if (clusteringMode || foodRouteMode || landmarkRouteMode) FoodEditMode.NONE else foodEditMode,
+                    clusteringMode = clusteringMode,
+                    selectedClusterPoints = selectedClusterPoints,
+                    clusteredPoints = clusteredPoints,
+                    externalPath = geneticFullPath,
+                    routeFoodPlaces = geneticRoutePlaces,
+                    userCell = manualUserCell,
+                    onGridChanged = { updateTick++ },
+                    onAddFoodPlace = { row, col ->
+                        if (foodPlaces.none { it.row == row && it.col == col }) {
+                            pendingNewFoodPlace = row to col
+                            showNewFoodDialog = true
+                        }
+                    },
+                    onDeleteFoodPlace = { row, col ->
+                        foodPlaces.removeAll { it.row == row && it.col == col }
+                    },
+                    onClusterPointToggle = { row, col ->
+                        val existing =
+                            selectedClusterPoints.indexOfFirst { it.row == row && it.col == col }
+                        if (existing >= 0) selectedClusterPoints.removeAt(existing)
+                        else selectedClusterPoints.add(ClusterPoint(row, col))
+                        clusteredPoints.clear()
+                    },
+                    onFoodPlaceSelected = { foodPlace ->
+                        selectedFoodPlace = foodPlace
+                    }
+                )
+
+                Controls(
+                    context = context,
+                    isTraining = isTraining,
+                    trainingProgress = trainingProgress,
+                    collectingMode = collectingMode,
+                    currentLabel = currentLabel,
+                    trainingSamples = trainingSamples,
+                    modelFile = modelFile,
+                    onTrainingStart = { isTraining = true },
+                    onTrainingEnd = { isTraining = false },
+                    onProgressUpdate = { progress -> trainingProgress = progress },
+                    onCollectingModeToggle = { collectingMode = !collectingMode },
+                    onLabelChange = { label -> currentLabel = label },
+                    onSampleAdd = { sample -> trainingSamples.add(sample) },
+                    appMode = appMode,
+                    ratings = ratings,
+                    neuralNetwork = neuralNetwork,
+                    onSaveRatings = saveRatings,
+                    selectedFoodPlace = selectedFoodPlace,
+                    onChangeMode = onChangeMode,
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(240.dp),
+                    showGrid = gridVisible,
+                    editMode = editEnabled,
+                    foodEditMode = foodEditMode,
+                    clusteringMode = clusteringMode,
+                    foodRouteMode = foodRouteMode,
+                    landmarkRouteMode = landmarkRouteMode,
+                    clusterCountText = clusterCountText,
+                    selectedPointsCount = selectedClusterPoints.size,
+                    userRowText = userRowText,
+                    userColText = userColText,
+                    dishesText = dishesText,
+                    routeInfoText = routeInfoText,
+                    landmarks = landmarks,
+                    selectedLandmarkIds = selectedLandmarkIds,
+                    landmarkRouteInfo = landmarkRouteInfo,
+                    onClusterCountChange = { clusterCountText = it.filter { ch -> ch.isDigit() } },
+                    onUserRowChange = {
+                        userRowText = it.filter { ch -> ch.isDigit() }
+                        val r = userRowText.toIntOrNull()
+                        val c = userColText.toIntOrNull()
+                        manualUserCell =
+                            if (r != null && c != null && r in 0 until MapConfig.ROWS && c in 0 until MapConfig.COLS) r to c else null
+                    },
+                    onUserColChange = {
+                        userColText = it.filter { ch -> ch.isDigit() }
+                        val r = userRowText.toIntOrNull()
+                        val c = userColText.toIntOrNull()
+                        manualUserCell =
+                            if (r != null && c != null && r in 0 until MapConfig.ROWS && c in 0 until MapConfig.COLS) r to c else null
+                    },
+                    onDishesChange = { dishesText = it },
+                    onGridClick = { gridVisible = !gridVisible },
+                    onEditClick = {
+                        if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) editEnabled =
+                            !editEnabled
+                    },
+                    isErasing = isErasing,
+                    onToggleErasing = { isErasing = !isErasing },
+                    onFoodAddClick = {
+                        if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) {
+                            foodEditMode =
+                                if (foodEditMode == FoodEditMode.ADD) FoodEditMode.NONE else FoodEditMode.ADD
+                        }
+                    },
+                    onFoodDeleteClick = {
+                        if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) {
+                            foodEditMode =
+                                if (foodEditMode == FoodEditMode.DELETE) FoodEditMode.NONE else FoodEditMode.DELETE
+                        }
+                    },
+                    onExportClick = {
+                        val gridResult = exportGridToString(mapGrid.value)
+                        val foodResult = exportFoodPlacesToString(foodPlaces)
+
+                        android.util.Log.d("MAP_DATA_LENGTH", gridResult.length.toString())
+                        MapConfig.logLongString("MAP_DATA", gridResult)
+                        android.util.Log.d("FOOD_PLACES", foodResult)
+                    },
+                    onClusteringToggle = {
+                        clusteringMode = !clusteringMode
+                        if (!clusteringMode) {
+                            selectedClusterPoints.clear()
+                            clusteredPoints.clear()
+                        } else {
+                            foodEditMode = FoodEditMode.NONE
+                            editEnabled = false
+                            foodRouteMode = false
+                            landmarkRouteMode = false
+                        }
+                    },
+                    onRunClustering = {
+                        val k = clusterCountText.toIntOrNull() ?: 0
+                        if (selectedClusterPoints.isNotEmpty() && k > 0) {
+                            clusteredPoints.clear()
+                            clusteredPoints.addAll(runKMeans(selectedClusterPoints.toList(), k))
+                        }
+                    },
+                    onFoodRouteToggle = {
+                        foodRouteMode = !foodRouteMode
+                        if (foodRouteMode) {
+                            clusteringMode = false
+                            editEnabled = false
+                            foodEditMode = FoodEditMode.NONE
+                            landmarkRouteMode = false
+                        } else {
+                            geneticRoutePlaces = emptyList()
+                            geneticFullPath = emptyList()
+                            routeInfoText = ""
+                        }
+                    },
+                    onRunFoodRoute = {
+                        val userRow = userRowText.toIntOrNull()
+                        val userCol = userColText.toIntOrNull()
+
+                        if (userRow == null || userCol == null) {
+                            routeInfoText = "Некорректные координаты пользователя"
+                            return@Controls
+                        }
+
+                        if (userRow !in 0 until MapConfig.ROWS || userCol !in 0 until MapConfig.COLS) {
+                            routeInfoText = "Координаты пользователя вне карты"
+                            return@Controls
+                        }
+
+                        if (!mapGrid.value[userRow][userCol]) {
+                            routeInfoText = "Пользователь стоит на непроходимой клетке"
+                            return@Controls
+                        }
+
+                        manualUserCell = userRow to userCol
+
+                        val requiredDishes = dishesText
+                            .split(",", ";", "\n")
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                            .distinct()
+
+                        if (requiredDishes.isEmpty()) {
+                            routeInfoText = "Введите хотя бы одно блюдо"
+                            return@Controls
+                        }
+
+                        val bestRoute = buildOptimalFoodRouteGenetic(
+                            userLocation = UserLocation(userRow, userCol),
+                            requiredDishes = requiredDishes,
+                            foodPlaces = foodPlaces.toList(),
+                            grid = mapGrid.value,
+                            populationSize = 20,
+                            generations = 100,
+                            mutationChance = 0.15
+                        )
+
+                        if (bestRoute.isEmpty()) {
+                            geneticRoutePlaces = emptyList()
+                            geneticFullPath = emptyList()
+                            routeInfoText = "Маршрут не найден"
+                            return@Controls
+                        }
+
+                        val fullPath = buildFullPathThroughRoute(
+                            userLocation = UserLocation(userRow, userCol),
+                            route = bestRoute,
+                            grid = mapGrid.value
+                        )
+
+                        geneticRoutePlaces = bestRoute
+                        geneticFullPath = fullPath
+
+                        val routeTitles = bestRoute.joinToString(" -> ") { it.title }
+                        routeInfoText =
+                            "Найдено: ${bestRoute.size} точек, длина пути: ${fullPath.size} клеток\n$routeTitles"
+                    },
+                    onClearFoodRoute = {
+                        geneticRoutePlaces = emptyList()
+                        geneticFullPath = emptyList()
+                        routeInfoText = ""
+                    },
+                    onLandmarkRouteToggle = {
+                        landmarkRouteMode = !landmarkRouteMode
+                        if (landmarkRouteMode) {
+                            clusteringMode = false
+                            foodRouteMode = false
+                            editEnabled = false
+                            foodEditMode = FoodEditMode.NONE
+                        } else {
+                            landmarkRoutePath = emptyList()
+                            orderedLandmarks = emptyList()
+                            landmarkRouteInfo = ""
+                            selectedLandmarkIds.clear()
+                        }
+                    },
+                    onLandmarkSelectionToggle = { id ->
+                        if (id in selectedLandmarkIds) selectedLandmarkIds.remove(id)
+                        else selectedLandmarkIds.add(id)
+                    },
+                    onRunLandmarkRoute = {
+                        val userRow = userRowText.toIntOrNull()
+                        val userCol = userColText.toIntOrNull()
+
+                        if (userRow == null || userCol == null) {
+                            landmarkRouteInfo = "Некорректные координаты пользователя"
+                            return@Controls
+                        }
+
+                        if (userRow !in 0 until MapConfig.ROWS || userCol !in 0 until MapConfig.COLS) {
+                            landmarkRouteInfo = "Координаты пользователя вне карты"
+                            return@Controls
+                        }
+
+                        if (!mapGrid.value[userRow][userCol]) {
+                            landmarkRouteInfo = "Пользователь стоит на непроходимой клетке"
+                            return@Controls
+                        }
+
+                        manualUserCell = userRow to userCol
+
+                        val selected = landmarks.filter { it.id in selectedLandmarkIds }
+                        if (selected.isEmpty()) {
+                            landmarkRouteInfo = "Выберите хотя бы одну достопримечательность"
+                            return@Controls
+                        }
+
+                        val ordered = buildLandmarkVisitOrder(selected)
+                        val fullPath = buildFullPathThroughPoints(
+                            start = userRow to userCol,
+                            orderedPoints = ordered.map { it.row to it.col },
+                            grid = mapGrid.value
+                        )
+
+                        if (fullPath.isEmpty()) {
+                            landmarkRoutePath = emptyList()
+                            orderedLandmarks = emptyList()
+                            landmarkRouteInfo = "Не удалось построить маршрут"
+                            return@Controls
+                        }
+
+                        orderedLandmarks = ordered
+                        landmarkRoutePath = fullPath
+                        landmarkRouteInfo =
+                            "Маршрут построен: ${ordered.joinToString(" -> ") { it.title }}\nДлина: ${fullPath.size} клеток"
+                    },
+                    onClearLandmarkRoute = {
+                        landmarkRoutePath = emptyList()
+                        orderedLandmarks = emptyList()
+                        landmarkRouteInfo = ""
+                    },
+                    isLandscape = isLandscape
+                )
+            }
+        }
+    } else {
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White)
+        ) {
+            Header()
+
+            UniversityMap(
+                ratings = ratings,
+                editMode = appMode == AppMode.DEVELOPER &&
+                        editEnabled &&
+                        !clusteringMode &&
+                        !foodRouteMode &&
+                        !landmarkRouteMode,
+                modifier = Modifier.weight(5f),
+                showGrid = gridVisible,
+                isErasing = isErasing,
+                grid = mapGrid.value,
+                foodPlaces = foodPlaces,
+                landmarks = landmarks,
+                selectedLandmarkIds = selectedLandmarkIds,
+                landmarkRoutePath = landmarkRoutePath,
+                orderedLandmarks = orderedLandmarks,
+                foodEditMode = if (clusteringMode || foodRouteMode || landmarkRouteMode) FoodEditMode.NONE else foodEditMode,
+                clusteringMode = clusteringMode,
+                selectedClusterPoints = selectedClusterPoints,
+                clusteredPoints = clusteredPoints,
+                externalPath = geneticFullPath,
+                routeFoodPlaces = geneticRoutePlaces,
+                userCell = manualUserCell,
+                onGridChanged = { updateTick++ },
+                onAddFoodPlace = { row, col ->
+                    if (foodPlaces.none { it.row == row && it.col == col }) {
+                        pendingNewFoodPlace = row to col
+                        showNewFoodDialog = true
+                    }
+                },
+                onDeleteFoodPlace = { row, col ->
+                    foodPlaces.removeAll { it.row == row && it.col == col }
+                },
+                onClusterPointToggle = { row, col ->
+                    val existing =
+                        selectedClusterPoints.indexOfFirst { it.row == row && it.col == col }
+                    if (existing >= 0) selectedClusterPoints.removeAt(existing)
+                    else selectedClusterPoints.add(ClusterPoint(row, col))
                     clusteredPoints.clear()
-                } else {
-                    foodEditMode = FoodEditMode.NONE
-                    editEnabled = false
-                    foodRouteMode = false
-                    landmarkRouteMode = false
+                },
+                onFoodPlaceSelected = { foodPlace ->
+                    selectedFoodPlace = foodPlace
                 }
-            },
-            onRunClustering = {
-                val k = clusterCountText.toIntOrNull() ?: 0
-                if (selectedClusterPoints.isNotEmpty() && k > 0) {
-                    clusteredPoints.clear()
-                    clusteredPoints.addAll(runKMeans(selectedClusterPoints.toList(), k))
-                }
-            },
-            onFoodRouteToggle = {
-                foodRouteMode = !foodRouteMode
-                if (foodRouteMode) {
-                    clusteringMode = false
-                    editEnabled = false
-                    foodEditMode = FoodEditMode.NONE
-                    landmarkRouteMode = false
-                } else {
+            )
+
+            Controls(
+                context = context,
+                isTraining = isTraining,
+                trainingProgress = trainingProgress,
+                collectingMode = collectingMode,
+                currentLabel = currentLabel,
+                trainingSamples = trainingSamples,
+                modelFile = modelFile,
+                onTrainingStart = { isTraining = true },
+                onTrainingEnd = { isTraining = false },
+                onProgressUpdate = { progress -> trainingProgress = progress },
+                onCollectingModeToggle = { collectingMode = !collectingMode },
+                onLabelChange = { label -> currentLabel = label },
+                onSampleAdd = { sample -> trainingSamples.add(sample) },
+                appMode = appMode,
+                ratings = ratings,
+                neuralNetwork = neuralNetwork,
+                onSaveRatings = saveRatings,
+                selectedFoodPlace = selectedFoodPlace,
+                onChangeMode = onChangeMode,
+                modifier = Modifier.weight(2.8f),
+                showGrid = gridVisible,
+                editMode = editEnabled,
+                foodEditMode = foodEditMode,
+                clusteringMode = clusteringMode,
+                foodRouteMode = foodRouteMode,
+                landmarkRouteMode = landmarkRouteMode,
+                clusterCountText = clusterCountText,
+                selectedPointsCount = selectedClusterPoints.size,
+                userRowText = userRowText,
+                userColText = userColText,
+                dishesText = dishesText,
+                routeInfoText = routeInfoText,
+                landmarks = landmarks,
+                selectedLandmarkIds = selectedLandmarkIds,
+                landmarkRouteInfo = landmarkRouteInfo,
+                onClusterCountChange = { clusterCountText = it.filter { ch -> ch.isDigit() } },
+                onUserRowChange = {
+                    userRowText = it.filter { ch -> ch.isDigit() }
+                    val r = userRowText.toIntOrNull()
+                    val c = userColText.toIntOrNull()
+                    manualUserCell =
+                        if (r != null && c != null && r in 0 until MapConfig.ROWS && c in 0 until MapConfig.COLS) r to c else null
+                },
+                onUserColChange = {
+                    userColText = it.filter { ch -> ch.isDigit() }
+                    val r = userRowText.toIntOrNull()
+                    val c = userColText.toIntOrNull()
+                    manualUserCell =
+                        if (r != null && c != null && r in 0 until MapConfig.ROWS && c in 0 until MapConfig.COLS) r to c else null
+                },
+                onDishesChange = { dishesText = it },
+                onGridClick = { gridVisible = !gridVisible },
+                onEditClick = {
+                    if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) editEnabled =
+                        !editEnabled
+                },
+                isErasing = isErasing,
+                onToggleErasing = { isErasing = !isErasing },
+                onFoodAddClick = {
+                    if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) {
+                        foodEditMode =
+                            if (foodEditMode == FoodEditMode.ADD) FoodEditMode.NONE else FoodEditMode.ADD
+                    }
+                },
+                onFoodDeleteClick = {
+                    if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) {
+                        foodEditMode =
+                            if (foodEditMode == FoodEditMode.DELETE) FoodEditMode.NONE else FoodEditMode.DELETE
+                    }
+                },
+                onExportClick = {
+                    val gridResult = exportGridToString(mapGrid.value)
+                    val foodResult = exportFoodPlacesToString(foodPlaces)
+
+                    android.util.Log.d("MAP_DATA_LENGTH", gridResult.length.toString())
+                    MapConfig.logLongString("MAP_DATA", gridResult)
+                    android.util.Log.d("FOOD_PLACES", foodResult)
+                },
+                onClusteringToggle = {
+                    clusteringMode = !clusteringMode
+                    if (!clusteringMode) {
+                        selectedClusterPoints.clear()
+                        clusteredPoints.clear()
+                    } else {
+                        foodEditMode = FoodEditMode.NONE
+                        editEnabled = false
+                        foodRouteMode = false
+                        landmarkRouteMode = false
+                    }
+                },
+                onRunClustering = {
+                    val k = clusterCountText.toIntOrNull() ?: 0
+                    if (selectedClusterPoints.isNotEmpty() && k > 0) {
+                        clusteredPoints.clear()
+                        clusteredPoints.addAll(runKMeans(selectedClusterPoints.toList(), k))
+                    }
+                },
+                onFoodRouteToggle = {
+                    foodRouteMode = !foodRouteMode
+                    if (foodRouteMode) {
+                        clusteringMode = false
+                        editEnabled = false
+                        foodEditMode = FoodEditMode.NONE
+                        landmarkRouteMode = false
+                    } else {
+                        geneticRoutePlaces = emptyList()
+                        geneticFullPath = emptyList()
+                        routeInfoText = ""
+                    }
+                },
+                onRunFoodRoute = {
+                    val userRow = userRowText.toIntOrNull()
+                    val userCol = userColText.toIntOrNull()
+
+                    if (userRow == null || userCol == null) {
+                        routeInfoText = "Некорректные координаты пользователя"
+                        return@Controls
+                    }
+
+                    if (userRow !in 0 until MapConfig.ROWS || userCol !in 0 until MapConfig.COLS) {
+                        routeInfoText = "Координаты пользователя вне карты"
+                        return@Controls
+                    }
+
+                    if (!mapGrid.value[userRow][userCol]) {
+                        routeInfoText = "Пользователь стоит на непроходимой клетке"
+                        return@Controls
+                    }
+
+                    manualUserCell = userRow to userCol
+
+                    val requiredDishes = dishesText
+                        .split(",", ";", "\n")
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+
+                    if (requiredDishes.isEmpty()) {
+                        routeInfoText = "Введите хотя бы одно блюдо"
+                        return@Controls
+                    }
+
+                    val bestRoute = buildOptimalFoodRouteGenetic(
+                        userLocation = UserLocation(userRow, userCol),
+                        requiredDishes = requiredDishes,
+                        foodPlaces = foodPlaces.toList(),
+                        grid = mapGrid.value,
+                        populationSize = 20,
+                        generations = 100,
+                        mutationChance = 0.15
+                    )
+
+                    if (bestRoute.isEmpty()) {
+                        geneticRoutePlaces = emptyList()
+                        geneticFullPath = emptyList()
+                        routeInfoText = "Маршрут не найден"
+                        return@Controls
+                    }
+
+                    val fullPath = buildFullPathThroughRoute(
+                        userLocation = UserLocation(userRow, userCol),
+                        route = bestRoute,
+                        grid = mapGrid.value
+                    )
+
+                    geneticRoutePlaces = bestRoute
+                    geneticFullPath = fullPath
+
+                    val routeTitles = bestRoute.joinToString(" -> ") { it.title }
+                    routeInfoText =
+                        "Найдено: ${bestRoute.size} точек, длина пути: ${fullPath.size} клеток\n$routeTitles"
+                },
+                onClearFoodRoute = {
                     geneticRoutePlaces = emptyList()
                     geneticFullPath = emptyList()
                     routeInfoText = ""
-                }
-            },
-            onRunFoodRoute = {
-                val userRow = userRowText.toIntOrNull()
-                val userCol = userColText.toIntOrNull()
+                },
+                onLandmarkRouteToggle = {
+                    landmarkRouteMode = !landmarkRouteMode
+                    if (landmarkRouteMode) {
+                        clusteringMode = false
+                        foodRouteMode = false
+                        editEnabled = false
+                        foodEditMode = FoodEditMode.NONE
+                    } else {
+                        landmarkRoutePath = emptyList()
+                        orderedLandmarks = emptyList()
+                        landmarkRouteInfo = ""
+                        selectedLandmarkIds.clear()
+                    }
+                },
+                onLandmarkSelectionToggle = { id ->
+                    if (id in selectedLandmarkIds) selectedLandmarkIds.remove(id)
+                    else selectedLandmarkIds.add(id)
+                },
+                onRunLandmarkRoute = {
+                    val userRow = userRowText.toIntOrNull()
+                    val userCol = userColText.toIntOrNull()
 
-                if (userRow == null || userCol == null) {
-                    routeInfoText = "Некорректные координаты пользователя"
-                    return@Controls
-                }
+                    if (userRow == null || userCol == null) {
+                        landmarkRouteInfo = "Некорректные координаты пользователя"
+                        return@Controls
+                    }
 
-                if (userRow !in 0 until MapConfig.ROWS || userCol !in 0 until MapConfig.COLS) {
-                    routeInfoText = "Координаты пользователя вне карты"
-                    return@Controls
-                }
+                    if (userRow !in 0 until MapConfig.ROWS || userCol !in 0 until MapConfig.COLS) {
+                        landmarkRouteInfo = "Координаты пользователя вне карты"
+                        return@Controls
+                    }
 
-                if (!mapGrid.value[userRow][userCol]) {
-                    routeInfoText = "Пользователь стоит на непроходимой клетке"
-                    return@Controls
-                }
+                    if (!mapGrid.value[userRow][userCol]) {
+                        landmarkRouteInfo = "Пользователь стоит на непроходимой клетке"
+                        return@Controls
+                    }
 
-                manualUserCell = userRow to userCol
+                    manualUserCell = userRow to userCol
 
-                val requiredDishes = dishesText
-                    .split(",", ";", "\n")
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .distinct()
+                    val selected = landmarks.filter { it.id in selectedLandmarkIds }
+                    if (selected.isEmpty()) {
+                        landmarkRouteInfo = "Выберите хотя бы одну достопримечательность"
+                        return@Controls
+                    }
 
-                if (requiredDishes.isEmpty()) {
-                    routeInfoText = "Введите хотя бы одно блюдо"
-                    return@Controls
-                }
+                    val ordered = buildLandmarkVisitOrder(selected)
+                    val fullPath = buildFullPathThroughPoints(
+                        start = userRow to userCol,
+                        orderedPoints = ordered.map { it.row to it.col },
+                        grid = mapGrid.value
+                    )
 
-                val bestRoute = buildOptimalFoodRouteGenetic(
-                    userLocation = UserLocation(userRow, userCol),
-                    requiredDishes = requiredDishes,
-                    foodPlaces = foodPlaces.toList(),
-                    grid = mapGrid.value,
-                    populationSize = 20,
-                    generations = 100,
-                    mutationChance = 0.15
-                )
+                    if (fullPath.isEmpty()) {
+                        landmarkRoutePath = emptyList()
+                        orderedLandmarks = emptyList()
+                        landmarkRouteInfo = "Не удалось построить маршрут"
+                        return@Controls
+                    }
 
-                if (bestRoute.isEmpty()) {
-                    geneticRoutePlaces = emptyList()
-                    geneticFullPath = emptyList()
-                    routeInfoText = "Маршрут не найден"
-                    return@Controls
-                }
-
-                val fullPath = buildFullPathThroughRoute(
-                    userLocation = UserLocation(userRow, userCol),
-                    route = bestRoute,
-                    grid = mapGrid.value
-                )
-
-                geneticRoutePlaces = bestRoute
-                geneticFullPath = fullPath
-
-                val routeTitles = bestRoute.joinToString(" -> ") { it.title }
-                routeInfoText =
-                    "Найдено: ${bestRoute.size} точек, длина пути: ${fullPath.size} клеток\n$routeTitles"
-            },
-            onClearFoodRoute = {
-                geneticRoutePlaces = emptyList()
-                geneticFullPath = emptyList()
-                routeInfoText = ""
-            },
-            onLandmarkRouteToggle = {
-                landmarkRouteMode = !landmarkRouteMode
-                if (landmarkRouteMode) {
-                    clusteringMode = false
-                    foodRouteMode = false
-                    editEnabled = false
-                    foodEditMode = FoodEditMode.NONE
-                } else {
+                    orderedLandmarks = ordered
+                    landmarkRoutePath = fullPath
+                    landmarkRouteInfo =
+                        "Маршрут построен: ${ordered.joinToString(" -> ") { it.title }}\nДлина: ${fullPath.size} клеток"
+                },
+                onClearLandmarkRoute = {
                     landmarkRoutePath = emptyList()
                     orderedLandmarks = emptyList()
                     landmarkRouteInfo = ""
-                    selectedLandmarkIds.clear()
-                }
-            },
-            onLandmarkSelectionToggle = { id ->
-                if (id in selectedLandmarkIds) selectedLandmarkIds.remove(id)
-                else selectedLandmarkIds.add(id)
-            },
-            onRunLandmarkRoute = {
-                val userRow = userRowText.toIntOrNull()
-                val userCol = userColText.toIntOrNull()
-
-                if (userRow == null || userCol == null) {
-                    landmarkRouteInfo = "Некорректные координаты пользователя"
-                    return@Controls
-                }
-
-                if (userRow !in 0 until MapConfig.ROWS || userCol !in 0 until MapConfig.COLS) {
-                    landmarkRouteInfo = "Координаты пользователя вне карты"
-                    return@Controls
-                }
-
-                if (!mapGrid.value[userRow][userCol]) {
-                    landmarkRouteInfo = "Пользователь стоит на непроходимой клетке"
-                    return@Controls
-                }
-
-                manualUserCell = userRow to userCol
-
-                val selected = landmarks.filter { it.id in selectedLandmarkIds }
-                if (selected.isEmpty()) {
-                    landmarkRouteInfo = "Выберите хотя бы одну достопримечательность"
-                    return@Controls
-                }
-
-                val ordered = buildLandmarkVisitOrder(selected)
-                val fullPath = buildFullPathThroughPoints(
-                    start = userRow to userCol,
-                    orderedPoints = ordered.map { it.row to it.col },
-                    grid = mapGrid.value
-                )
-
-                if (fullPath.isEmpty()) {
-                    landmarkRoutePath = emptyList()
-                    orderedLandmarks = emptyList()
-                    landmarkRouteInfo = "Не удалось построить маршрут"
-                    return@Controls
-                }
-
-                orderedLandmarks = ordered
-                landmarkRoutePath = fullPath
-                landmarkRouteInfo =
-                    "Маршрут построен: ${ordered.joinToString(" -> ") { it.title }}\nДлина: ${fullPath.size} клеток"
-            },
-            onClearLandmarkRoute = {
-                landmarkRoutePath = emptyList()
-                orderedLandmarks = emptyList()
-                landmarkRouteInfo = ""
-            }
-        )
+                },
+                isLandscape = isLandscape
+            )
+        }
     }
 }
