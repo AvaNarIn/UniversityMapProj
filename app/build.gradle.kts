@@ -54,6 +54,7 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.2.1")
     implementation(libs.androidx.compose.ui.text)
     implementation("androidx.core:core-splashscreen:1.0.1")
+    implementation(libs.androidx.material3)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

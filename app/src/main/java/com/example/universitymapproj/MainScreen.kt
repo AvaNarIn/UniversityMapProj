@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,9 +16,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,7 +40,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.example.universitymapproj.NeuralNetwork.NeuralNetwork
 import com.example.universitymapproj.NeuralNetwork.TrainingSample
 import com.example.universitymapproj.clustering.runKMeans
@@ -65,6 +72,7 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
 
+@OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("MissingPermission")
 @Composable
 fun MainScreen(
@@ -96,13 +104,8 @@ fun MainScreen(
     val clusteredPoints = remember { mutableStateListOf<ClusteredPoint>() }
 
     var pendingNewFoodPlace by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-    var showNewFoodDialog by remember { mutableStateOf(false) }
-
-    var tempTitle by remember { mutableStateOf("Новый общепит") }
-    var tempDescription by remember { mutableStateOf("Описание") }
-    var tempWorkingHours by remember { mutableStateOf("08:00-18:00") }
-    var tempType by remember { mutableStateOf("Кафе") }
-    var tempDishesText by remember { mutableStateOf("Блюдо1, Блюдо2") }
+    val bottomSheetState = rememberModalBottomSheetState()
+    var showBottomSheet by remember { mutableStateOf(false) }
 
     val modelFile = remember { File(context.filesDir, "model.dat") }
     var isTraining by remember { mutableStateOf(false) }
@@ -143,7 +146,6 @@ fun MainScreen(
         val fileContent = try {
             context.assets.open("saved_map_grid.txt").bufferedReader().use { it.readText() }
         } catch (e: Exception) {
-            android.util.Log.e("FILE_ERROR", "Файл не найден в assets, используем SAVED_GRID")
             MapConfig.SAVED_GRID
         }
 
@@ -237,120 +239,6 @@ fun MainScreen(
     }
     val saveRatings = { saveRatingsToFile(ratingsFile, ratings) }
 
-    if (showNewFoodDialog) {
-        Dialog(
-            onDismissRequest = {
-                showNewFoodDialog = false
-                pendingNewFoodPlace = null
-            }
-        ) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "Добавление нового общепита",
-                        fontSize = 20.sp,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = tempTitle,
-                        onValueChange = { tempTitle = it },
-                        label = { Text("Название") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = tempDescription,
-                        onValueChange = { tempDescription = it },
-                        label = { Text("Описание") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = tempWorkingHours,
-                        onValueChange = { tempWorkingHours = it },
-                        label = { Text("Часы работы") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = tempType,
-                        onValueChange = { tempType = it },
-                        label = { Text("Тип заведения") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = tempDishesText,
-                        onValueChange = { tempDishesText = it },
-                        label = { Text("Блюда (через запятую)") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(
-                            onClick = {
-                                showNewFoodDialog = false
-                                pendingNewFoodPlace = null
-                            }
-                        ) { Text("Отмена") }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        Button(
-                            onClick = {
-                                pendingNewFoodPlace?.let { (row, col) ->
-                                    val dishes = tempDishesText
-                                        .split(",", ";", "\n")
-                                        .map { it.trim() }
-                                        .filter { it.isNotBlank() }
-
-                                    foodPlaces.add(
-                                        Obshepit(
-                                            row = row,
-                                            col = col,
-                                            title = tempTitle.ifBlank { "Новый общепит" },
-                                            description = tempDescription.ifBlank { "Описание" },
-                                            workingHours = tempWorkingHours.ifBlank { "08:00-18:00" },
-                                            type = tempType.ifBlank { "Кафе" },
-                                            dishes = dishes.ifEmpty { listOf("Блюдо") }
-                                        )
-                                    )
-                                }
-
-                                tempTitle = "Новый общепит"
-                                tempDescription = "Описание"
-                                tempWorkingHours = "08:00-18:00"
-                                tempType = "Кафе"
-                                tempDishesText = "Блюдо1, Блюдо2"
-
-                                showNewFoodDialog = false
-                                pendingNewFoodPlace = null
-                            }
-                        ) { Text("Добавить") }
-                    }
-                }
-            }
-        }
-    }
-
     fun toggleAstarMode() {
         astarMode = !astarMode
         if (astarMode) {
@@ -424,7 +312,7 @@ fun MainScreen(
                     onAddFoodPlace = { row, col ->
                         if (foodPlaces.none { it.row == row && it.col == col }) {
                             pendingNewFoodPlace = row to col
-                            showNewFoodDialog = true
+                            showBottomSheet = true
                         }
                     },
                     onDeleteFoodPlace = { row, col ->
@@ -836,7 +724,7 @@ fun MainScreen(
                 onAddFoodPlace = { row, col ->
                     if (foodPlaces.none { it.row == row && it.col == col }) {
                         pendingNewFoodPlace = row to col
-                        showNewFoodDialog = true
+                        showBottomSheet = true
                     }
                 },
                 onDeleteFoodPlace = { row, col ->
@@ -1208,6 +1096,172 @@ fun MainScreen(
                     selectingEnd = false
                 }
             )
+        }
+    }
+
+    if (showBottomSheet) {
+        ModalBottomSheet(
+            onDismissRequest = {
+                showBottomSheet = false
+                pendingNewFoodPlace = null
+            },
+            sheetState = bottomSheetState
+        ) {
+            AddFoodBottomSheet(
+                initialTitle = "Новый общепит",
+                initialDescription = "Описание",
+                initialWorkingHours = "08:00-18:00",
+                initialType = "Кафе",
+                initialDishes = "Блюдо1, Блюдо2",
+                onDismiss = {
+                    showBottomSheet = false
+                    pendingNewFoodPlace = null
+                },
+                onConfirm = { title, desc, hours, type, dishes ->
+                    pendingNewFoodPlace?.let { (row, col) ->
+                        foodPlaces.add(
+                            Obshepit(
+                                row = row,
+                                col = col,
+                                title = title,
+                                description = desc,
+                                workingHours = hours,
+                                type = type,
+                                dishes = dishes
+                            )
+                        )
+                    }
+                    showBottomSheet = false
+                    pendingNewFoodPlace = null
+                }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddFoodBottomSheet(
+    initialTitle: String,
+    initialDescription: String,
+    initialWorkingHours: String,
+    initialType: String,
+    initialDishes: String,
+    onDismiss: () -> Unit,
+    onConfirm: (title: String, description: String, workingHours: String, type: String, dishes: List<String>) -> Unit
+) {
+    var title by remember { mutableStateOf(initialTitle) }
+    var description by remember { mutableStateOf(initialDescription) }
+    var workingHours by remember { mutableStateOf(initialWorkingHours) }
+    var type by remember { mutableStateOf(initialType) }
+    var dishesText by remember { mutableStateOf(initialDishes) }
+
+    val placeTypes = listOf("Кафе", "Столовая", "Ресторан", "Буфет", "Кофейня", "Фастфуд")
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = "Добавление нового общепита",
+            fontSize = 20.sp,
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+
+        OutlinedTextField(
+            value = title,
+            onValueChange = { title = it },
+            label = { Text("Название") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        OutlinedTextField(
+            value = description,
+            onValueChange = { description = it },
+            label = { Text("Описание") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        OutlinedTextField(
+            value = workingHours,
+            onValueChange = { workingHours = it },
+            label = { Text("Часы работы") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        var expanded by remember { mutableStateOf(false) }
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it }
+        ) {
+            OutlinedTextField(
+                value = type,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Тип заведения") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .menuAnchor()
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                placeTypes.forEach { t ->
+                    DropdownMenuItem(
+                        text = {
+                            Box { Text(t) }
+                        },
+                        onClick = {
+                            type = t
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+
+        OutlinedTextField(
+            value = dishesText,
+            onValueChange = { dishesText = it },
+            label = { Text("Блюда (через запятую)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(onClick = onDismiss) {
+                Text("Отмена")
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(
+                onClick = {
+                    val dishes = dishesText
+                        .split(",", ";", "\n")
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                    onConfirm(
+                        title.ifBlank { "Новый общепит" },
+                        description.ifBlank { "Описание" },
+                        workingHours.ifBlank { "08:00-18:00" },
+                        type.ifBlank { "Кафе" },
+                        dishes.ifEmpty { listOf("Блюдо") }
+                    )
+                }
+            ) {
+                Text("Добавить")
+            }
         }
     }
 }
