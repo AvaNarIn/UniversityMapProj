@@ -282,6 +282,8 @@ fun Controls(
     var drawingView by remember { mutableStateOf<DrawingView?>(null) }
     var predictedRating by remember { mutableStateOf<Int?>(null) }
 
+    var showResetDialog by remember { mutableStateOf(false) }
+
     Column(
         modifier = modifier
             .then(if (isLandscape) Modifier.fillMaxHeight() else Modifier.fillMaxWidth())
@@ -377,7 +379,6 @@ fun Controls(
                         isLandscape = isLandscape
                     )
 
-
                     AnimatedVisibility(
                         visible = trainingProgress.isNotBlank(),
                         enter = fadeIn() + expandVertically(),
@@ -393,11 +394,7 @@ fun Controls(
 
                     MainButton(
                         text = "Сбросить модель",
-                        onClick = {
-                            if (modelFile.exists()) modelFile.delete()
-                            neuralNetwork.initializeRandomWeights()
-                            onProgressUpdate("Модель сброшена")
-                        },
+                        onClick = { showResetDialog = true },
                         isLandscape = isLandscape
                     )
                 }
@@ -648,6 +645,7 @@ fun Controls(
             }
         }
 
+        // ------------------- МАРШРУТ ПО ДОСТОПРИМЕЧАТЕЛЬНОСТЯМ -------------------
         ControlCard {
             MainButton(
                 if (landmarkRouteMode) "Скрыть маршрут по достопримечательностям" else "Маршрут по достопримечательностям",
@@ -710,8 +708,32 @@ fun Controls(
             modifier = Modifier.fillMaxWidth()
         )
     }
-}
 
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = { Text("Сброс модели") },
+            text = { Text("Вы уверены, что хотите сбросить обученную модель нейросети?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (modelFile.exists()) modelFile.delete()
+                        neuralNetwork.initializeRandomWeights()
+                        onProgressUpdate("Модель сброшена")
+                        showResetDialog = false
+                    }
+                ) {
+                    Text("Сбросить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+}
 @Composable
 fun UniversityMap(
     modifier: Modifier = Modifier,
