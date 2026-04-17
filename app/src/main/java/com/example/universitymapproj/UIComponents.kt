@@ -2,13 +2,16 @@ package com.example.universitymapproj
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.util.Log
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -44,7 +47,6 @@ enum class AppMode {
     DEVELOPER
 }
 
-
 private val CLUSTER_COLORS = listOf(
     Color(0xFFE57373),
     Color(0xFF64B5F6),
@@ -58,7 +60,6 @@ private val CLUSTER_COLORS = listOf(
 
 private fun computeClusterCentroids(clustered: List<ClusteredPoint>): List<Pair<Double, Double>> {
     if (clustered.isEmpty()) return emptyList()
-
     return clustered
         .groupBy { it.clusterIndex }
         .toSortedMap()
@@ -73,12 +74,10 @@ private fun computeClusterCentroids(clustered: List<ClusteredPoint>): List<Pair<
 private fun buildClusterZoneIndex(centroids: List<Pair<Double, Double>>): Array<IntArray> {
     val rows = MapConfig.ROWS
     val cols = MapConfig.COLS
-
     return Array(rows) { r ->
         IntArray(cols) { c ->
             var best = 0
             var bestD = Double.MAX_VALUE
-
             for (i in centroids.indices) {
                 val dr = r - centroids[i].first
                 val dc = c - centroids[i].second
@@ -111,33 +110,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawClusterZones(
             )
         }
     }
-
-    if (!drawBorders) return
-
-    val borderColor = Color.Black.copy(alpha = 0.25f)
-    val stroke = 1f
-
-    for (r in 0 until MapConfig.ROWS) {
-        for (c in 0 until MapConfig.COLS) {
-            val here = zoneIndex[r][c]
-
-            if (c + 1 < MapConfig.COLS && zoneIndex[r][c + 1] != here) {
-                val x = (c + 1) * cellW
-                val y0 = r * cellH
-                val y1 = (r + 1) * cellH
-                drawLine(borderColor, Offset(x, y0), Offset(x, y1), strokeWidth = stroke)
-            }
-
-            if (r + 1 < MapConfig.ROWS && zoneIndex[r + 1][c] != here) {
-                val y = (r + 1) * cellH
-                val x0 = c * cellW
-                val x1 = (c + 1) * cellH
-                drawLine(borderColor, Offset(x0, y), Offset(x1, y), strokeWidth = stroke)
-            }
-        }
-    }
 }
-
 
 @Composable
 fun ControlCard(content: @Composable ColumnScope.() -> Unit) {
@@ -147,7 +120,9 @@ fun ControlCard(content: @Composable ColumnScope.() -> Unit) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier
+                .padding(12.dp)
+                .animateContentSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             content = content
         )
@@ -174,17 +149,29 @@ fun MainButton(
     enabled: Boolean = true,
     isLandscape: Boolean = false
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessLow)
+    )
+
     Button(
         onClick = onClick,
         enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp),
+            .height(56.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            },
         shape = RoundedCornerShape(16.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = Color(0xFF1976D2),
             contentColor = Color.White
-        )
+        ),
+        interactionSource = interactionSource
     ) {
         Text(
             text = text,
@@ -198,103 +185,80 @@ fun MainButton(
 
 @Composable
 fun Header() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(80.dp)
-            .background(Color(0xFF1976D2))
-            .padding(top = 24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("Навигатор Университета", color = Color.White, fontSize = 20.sp)
+    @Composable
+    fun Header() {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(80.dp)
+                .background(Color(0xFF1976D2))
+                .padding(top = 24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("Навигатор Университета", color = Color.White, fontSize = 20.sp)
+        }
     }
 }
-
 
 @Composable
 fun Controls(
     context: Context,
     appMode: AppMode,
-
     isTraining: Boolean,
     trainingProgress: String,
-
     collectingMode: Boolean,
     currentLabel: Int,
     trainingSamples: MutableList<TrainingSample>,
     modelFile: File,
-
     onTrainingStart: () -> Unit,
     onTrainingEnd: () -> Unit,
     onProgressUpdate: (String) -> Unit,
-
     onCollectingModeToggle: () -> Unit,
     onLabelChange: (Int) -> Unit,
     onSampleAdd: (TrainingSample) -> Unit,
-
     neuralNetwork: NeuralNetwork,
-
     ratings: MutableList<PlaceRating>,
     onSaveRatings: () -> Unit,
     selectedFoodPlace: Obshepit?,
-
     foodPlaces: List<Obshepit>,
     userCell: Pair<Int, Int>?,
-
     modifier: Modifier,
-
     showGrid: Boolean,
     editMode: Boolean,
-
     foodEditMode: FoodEditMode,
-
     clusteringMode: Boolean,
     foodRouteMode: Boolean,
     landmarkRouteMode: Boolean,
-
     clusterCountText: String,
     selectedPointsCount: Int,
-
     userRowText: String,
     userColText: String,
-
     dishesText: String,
     routeInfoText: String,
-
     landmarks: List<Landmark>,
     selectedLandmarkIds: List<Int>,
     landmarkRouteInfo: String,
-
     onClusterCountChange: (String) -> Unit,
     onUserRowChange: (String) -> Unit,
     onUserColChange: (String) -> Unit,
     onDishesChange: (String) -> Unit,
-
     onGridClick: () -> Unit,
     onEditClick: () -> Unit,
-
     onFoodAddClick: () -> Unit,
     onFoodDeleteClick: () -> Unit,
-
     onExportClick: () -> Unit,
-
     onClusteringToggle: () -> Unit,
     onRunClustering: () -> Unit,
-
     onFoodRouteToggle: () -> Unit,
     onRunFoodRoute: () -> Unit,
     onClearFoodRoute: () -> Unit,
-
     onLandmarkRouteToggle: () -> Unit,
     onLandmarkSelectionToggle: (Int) -> Unit,
     onRunLandmarkRoute: () -> Unit,
     onClearLandmarkRoute: () -> Unit,
-
     isErasing: Boolean,
     onToggleErasing: () -> Unit,
-
     onChangeMode: () -> Unit,
-
     astarMode: Boolean,
     obstacleDrawingEnabled: Boolean,
     astarStart: Pair<Int, Int>?,
@@ -303,7 +267,6 @@ fun Controls(
     selectingEnd: Boolean,
     isAstarRunning: Boolean,
     astarVisualizationState: AStarVisualState,
-
     onAstarModeToggle: () -> Unit,
     onObstacleDrawingToggle: () -> Unit,
     onSelectStartClick: () -> Unit,
@@ -311,7 +274,6 @@ fun Controls(
     onRunAstar: () -> Unit,
     onStopAstar: () -> Unit,
     onClearAstar: () -> Unit,
-
     isLandscape: Boolean = false
 ) {
     val scrollState = rememberScrollState()
@@ -325,7 +287,8 @@ fun Controls(
             .then(if (isLandscape) Modifier.fillMaxHeight() else Modifier.fillMaxWidth())
             .background(Color(0xFFF5F7FA))
             .verticalScroll(scrollState)
-            .padding(12.dp),
+            .padding(12.dp)
+            .animateContentSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
 
@@ -372,7 +335,9 @@ fun Controls(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .animateContentSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text("Обучение нейросети", fontWeight = FontWeight.Bold)
@@ -382,14 +347,11 @@ fun Controls(
                         onClick = {
                             if (isTraining) return@MainButton
                             onTrainingStart()
-
                             Thread {
                                 try {
                                     if (modelFile.exists()) modelFile.delete()
-
                                     onProgressUpdate("Начинаем обучение...")
                                     Thread.sleep(500)
-
                                     val trainer = NeuralNetworkTrainer(
                                         context = context,
                                         onProgress = { msg -> onProgressUpdate(msg) },
@@ -404,7 +366,6 @@ fun Controls(
                                             onTrainingEnd()
                                         }
                                     )
-
                                     trainer.train()
                                 } catch (e: Exception) {
                                     onProgressUpdate("Критическая ошибка: ${e.message}")
@@ -416,7 +377,12 @@ fun Controls(
                         isLandscape = isLandscape
                     )
 
-                    if (trainingProgress.isNotBlank()) {
+
+                    AnimatedVisibility(
+                        visible = trainingProgress.isNotBlank(),
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
                         Text(
                             trainingProgress,
                             fontSize = 12.sp,
@@ -444,64 +410,70 @@ fun Controls(
                     isLandscape = isLandscape
                 )
 
-                if (astarMode) {
-                    Text(
-                        buildString {
-                            append("Start: ${astarStart ?: "-"}\n")
-                            append("End: ${astarEnd ?: "-"}\n")
-                            append("Open: ${astarVisualizationState.openSet.size}, Closed: ${astarVisualizationState.closedSet.size}\n")
-                            append(
-                                when {
-                                    isAstarRunning -> "Статус: идёт…"
-                                    astarVisualizationState.isNoPath -> "Статус: пути нет"
-                                    astarVisualizationState.isComplete -> "Статус: готово"
-                                    else -> "Статус: ожидание"
-                                }
-                            )
-                        },
-                        fontSize = 12.sp
-                    )
+                AnimatedVisibility(
+                    visible = astarMode,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Column {
+                        Text(
+                            buildString {
+                                append("Start: ${astarStart ?: "-"}\n")
+                                append("End: ${astarEnd ?: "-"}\n")
+                                append("Open: ${astarVisualizationState.openSet.size}, Closed: ${astarVisualizationState.closedSet.size}\n")
+                                append(
+                                    when {
+                                        isAstarRunning -> "Статус: идёт…"
+                                        astarVisualizationState.isNoPath -> "Статус: пути нет"
+                                        astarVisualizationState.isComplete -> "Статус: готово"
+                                        else -> "Статус: ожидание"
+                                    }
+                                )
+                            },
+                            fontSize = 12.sp
+                        )
 
-                    MainButton(
-                        if (obstacleDrawingEnabled) "Препятствия: ВКЛ" else "Препятствия",
-                        onObstacleDrawingToggle,
-                        isLandscape = isLandscape
-                    )
+                        MainButton(
+                            if (obstacleDrawingEnabled) "Препятствия: ВКЛ" else "Препятствия",
+                            onObstacleDrawingToggle,
+                            isLandscape = isLandscape
+                        )
 
-                    MainButton(
-                        if (selectingStart) "Выбор START: ВКЛ" else "Выбрать START",
-                        onSelectStartClick,
-                        isLandscape = isLandscape,
-                        enabled = !isAstarRunning
-                    )
+                        MainButton(
+                            if (selectingStart) "Выбор START: ВКЛ" else "Выбрать START",
+                            onSelectStartClick,
+                            isLandscape = isLandscape,
+                            enabled = !isAstarRunning
+                        )
 
-                    MainButton(
-                        if (selectingEnd) "Выбор END: ВКЛ" else "Выбрать END",
-                        onSelectEndClick,
-                        isLandscape = isLandscape,
-                        enabled = !isAstarRunning
-                    )
+                        MainButton(
+                            if (selectingEnd) "Выбор END: ВКЛ" else "Выбрать END",
+                            onSelectEndClick,
+                            isLandscape = isLandscape,
+                            enabled = !isAstarRunning
+                        )
 
-                    MainButton(
-                        "Запустить",
-                        onRunAstar,
-                        isLandscape = isLandscape,
-                        enabled = !isAstarRunning && astarStart != null && astarEnd != null
-                    )
+                        MainButton(
+                            "Запустить",
+                            onRunAstar,
+                            isLandscape = isLandscape,
+                            enabled = !isAstarRunning && astarStart != null && astarEnd != null
+                        )
 
-                    MainButton(
-                        "Остановить",
-                        onStopAstar,
-                        isLandscape = isLandscape,
-                        enabled = isAstarRunning
-                    )
+                        MainButton(
+                            "Остановить",
+                            onStopAstar,
+                            isLandscape = isLandscape,
+                            enabled = isAstarRunning
+                        )
 
-                    MainButton(
-                        "Очистить",
-                        onClearAstar,
-                        isLandscape = isLandscape,
-                        enabled = !isAstarRunning
-                    )
+                        MainButton(
+                            "Очистить",
+                            onClearAstar,
+                            isLandscape = isLandscape,
+                            enabled = !isAstarRunning
+                        )
+                    }
                 }
             }
         }
@@ -512,7 +484,9 @@ fun Controls(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
-                modifier = Modifier.padding(12.dp),
+                modifier = Modifier
+                    .padding(12.dp)
+                    .animateContentSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (selectedFoodPlace != null) {
@@ -576,7 +550,11 @@ fun Controls(
                     }
 
                     predictedRating?.let { rating ->
-                        Text("Распознано: $rating", fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp))
+                        Text(
+                            "Распознано: $rating",
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
 
                         MainButton(
                             text = "Сохранить оценку",
@@ -607,16 +585,21 @@ fun Controls(
                 enabled = !astarMode
             )
 
-            if (clusteringMode) {
-                OutlinedTextField(
-                    value = clusterCountText,
-                    onValueChange = onClusterCountChange,
-                    label = { Text("Количество кластеров K") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Text("Выбрано точек: $selectedPointsCount")
-                MainButton("Запустить K-средних", onRunClustering, isLandscape = isLandscape)
+            AnimatedVisibility(
+                visible = clusteringMode,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column {
+                    OutlinedTextField(
+                        value = clusterCountText,
+                        onValueChange = onClusterCountChange,
+                        label = { Text("Количество кластеров K") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Выбрано точек: $selectedPointsCount")
+                    MainButton("Запустить K-средних", onRunClustering, isLandscape = isLandscape)
+                }
             }
         }
 
@@ -643,18 +626,25 @@ fun Controls(
                 )
             }
 
-            if (foodRouteMode) {
-                OutlinedTextField(
-                    value = dishesText,
-                    onValueChange = onDishesChange,
-                    label = { Text("Блюда через запятую") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+            AnimatedVisibility(
+                visible = foodRouteMode,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column {
+                    OutlinedTextField(
+                        value = dishesText,
+                        onValueChange = onDishesChange,
+                        label = { Text("Блюда через запятую") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    MainButton("Построить", onRunFoodRoute, isLandscape = isLandscape)
+                    MainButton("Очистить", onClearFoodRoute, isLandscape = isLandscape)
 
-                MainButton("Построить", onRunFoodRoute, isLandscape = isLandscape)
-                MainButton("Очистить", onClearFoodRoute, isLandscape = isLandscape)
-
-                if (routeInfoText.isNotBlank()) Text(routeInfoText)
+                    if (routeInfoText.isNotBlank()) {
+                        Text(routeInfoText)
+                    }
+                }
             }
         }
 
@@ -666,44 +656,51 @@ fun Controls(
                 enabled = !astarMode
             )
 
-            if (landmarkRouteMode) {
-                Text("Выберите достопримечательности:", fontWeight = FontWeight.Bold)
+            AnimatedVisibility(
+                visible = landmarkRouteMode,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column {
+                    Text("Выберите достопримечательности:", fontWeight = FontWeight.Bold)
 
-                landmarks.forEach { landmark ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .toggleable(
-                                value = landmark.id in selectedLandmarkIds,
-                                onValueChange = { onLandmarkSelectionToggle(landmark.id) }
+                    landmarks.forEach { landmark ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .toggleable(
+                                    value = landmark.id in selectedLandmarkIds,
+                                    onValueChange = { onLandmarkSelectionToggle(landmark.id) }
+                                )
+                                .padding(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = landmark.id in selectedLandmarkIds,
+                                onCheckedChange = null
                             )
-                            .padding(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = landmark.id in selectedLandmarkIds,
-                            onCheckedChange = null
-                        )
-
-                        Spacer(Modifier.width(8.dp))
-
-                        Column {
-                            Text(landmark.title, fontWeight = FontWeight.SemiBold)
-                            if (landmark.description.isNotBlank()) {
-                                Text(landmark.description, fontSize = 12.sp, color = Color.Gray)
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(landmark.title, fontWeight = FontWeight.SemiBold)
+                                if (landmark.description.isNotBlank()) {
+                                    Text(landmark.description, fontSize = 12.sp, color = Color.Gray)
+                                }
                             }
                         }
                     }
+
+                    MainButton("Построить", onRunLandmarkRoute, isLandscape = isLandscape)
+                    MainButton("Очистить", onClearLandmarkRoute, isLandscape = isLandscape)
+
+                    if (landmarkRouteInfo.isNotBlank()) {
+                        Text(landmarkRouteInfo)
+                    }
                 }
-
-                MainButton("Построить", onRunLandmarkRoute, isLandscape = isLandscape)
-                MainButton("Очистить", onClearLandmarkRoute, isLandscape = isLandscape)
-
-                if (landmarkRouteInfo.isNotBlank()) Text(landmarkRouteInfo)
             }
         }
 
         MainButton("Сменить режим", onChangeMode, isLandscape = isLandscape)
+
         Spacer(modifier = Modifier.height(12.dp))
 
         LunchDecisionTreeCard(
@@ -712,10 +709,8 @@ fun Controls(
             userCell = userCell,
             modifier = Modifier.fillMaxWidth()
         )
-
     }
 }
-
 
 @Composable
 fun UniversityMap(
@@ -943,7 +938,6 @@ fun UniversityMap(
                                                 path = emptyList()
                                             } else {
                                                 endPoint = r to c
-                                                // оставлено как было (синхронно)
                                                 path = com.example.universitymapproj.pathfinding.AStarPathfinder(localGrid).findPath(
                                                     startPoint!!.first,
                                                     startPoint!!.second,
@@ -982,7 +976,6 @@ fun UniversityMap(
                     val cw = size.width / MapConfig.COLS
                     val ch = size.height / MapConfig.ROWS
 
-                    // зоны кластеров (за всем)
                     if (clusteredPoints.isNotEmpty()) {
                         zoneIndex?.let { zones ->
                             drawClusterZones(
@@ -995,7 +988,6 @@ fun UniversityMap(
                         }
                     }
 
-                    // сетка
                     if (showGrid) {
                         for (r in 0 until MapConfig.ROWS) {
                             for (c in 0 until MapConfig.COLS) {
@@ -1013,7 +1005,6 @@ fun UniversityMap(
                     }
 
                     if (astarMode) {
-                        // closed
                         astarVisualState.closedSet.forEach { (rr, cc) ->
                             drawRect(
                                 color = Color(0xFF616161).copy(alpha = 0.35f),
@@ -1022,7 +1013,6 @@ fun UniversityMap(
                             )
                         }
 
-                        // open
                         astarVisualState.openSet.forEach { (rr, cc) ->
                             drawRect(
                                 color = Color(0xFF64B5F6).copy(alpha = 0.35f),
@@ -1031,7 +1021,6 @@ fun UniversityMap(
                             )
                         }
 
-                        // current
                         astarVisualState.current?.let { (rr, cc) ->
                             drawRect(
                                 color = Color.Red.copy(alpha = 0.6f),
@@ -1040,7 +1029,6 @@ fun UniversityMap(
                             )
                         }
 
-                        // final path
                         astarVisualState.path.forEach { (rr, cc) ->
                             drawRect(
                                 color = Color(0xFF4CAF50).copy(alpha = 0.75f),
@@ -1049,7 +1037,6 @@ fun UniversityMap(
                             )
                         }
 
-                        // start/end markers
                         astarStart?.let { (rr, cc) ->
                             drawCircle(
                                 color = Color.Blue,
@@ -1065,9 +1052,7 @@ fun UniversityMap(
                             )
                         }
                     }
-                    // ----------------------------------------
 
-                    // обычный путь A*
                     path.forEach { (r, c) ->
                         drawRect(
                             color = Color(0xFF4CAF50),
@@ -1076,7 +1061,6 @@ fun UniversityMap(
                         )
                     }
 
-                    // внешний путь (генетика)
                     externalPath.forEach { (r, c) ->
                         drawRect(
                             color = Color(0xFF1565C0).copy(alpha = 0.85f),
@@ -1085,7 +1069,6 @@ fun UniversityMap(
                         )
                     }
 
-                    // маршрут по достопримечательностям
                     landmarkRoutePath.forEach { (r, c) ->
                         drawRect(
                             color = Color(0xFFFF9800).copy(alpha = 0.85f),
@@ -1094,7 +1077,6 @@ fun UniversityMap(
                         )
                     }
 
-                    // общепит + рейтинг
                     foodPlaces.forEach { place ->
                         val avgRating = getAverageRating(place.row, place.col)
                         val cellX = place.col * cw
@@ -1128,7 +1110,6 @@ fun UniversityMap(
                         }
                     }
 
-                    // достопримечательности
                     landmarks.forEach { landmark ->
                         val color =
                             if (landmark.id in selectedLandmarkIds) Color(0xFF9C27B0) else Color(0xFF00BCD4)
@@ -1139,7 +1120,6 @@ fun UniversityMap(
                         )
                     }
 
-                    // маршрут по блюдам - точки
                     routeFoodPlaces.forEachIndexed { index, place ->
                         drawRect(
                             color = if (index == 0) Color(0xFFFF5722) else Color(0xFF8BC34A),
@@ -1148,7 +1128,6 @@ fun UniversityMap(
                         )
                     }
 
-                    // упорядоченные landmarks
                     orderedLandmarks.forEachIndexed { index, landmark ->
                         drawRect(
                             color = if (index == 0) Color(0xFFD32F2F) else Color(0xFF673AB7),
@@ -1157,7 +1136,6 @@ fun UniversityMap(
                         )
                     }
 
-                    // пользователь
                     userCell?.let { (r, c) ->
                         drawRect(
                             color = Color.Red.copy(alpha = 0.9f),
@@ -1166,7 +1144,7 @@ fun UniversityMap(
                         )
                     }
 
-                    // кластеры / выбранные точки
+
                     if (clusteredPoints.isNotEmpty()) {
                         clusteredPoints.forEach { point ->
                             drawRect(
@@ -1185,7 +1163,7 @@ fun UniversityMap(
                         }
                     }
 
-                    // start/end (старый режим)
+
                     startPoint?.let { (r, c) ->
                         drawCircle(
                             color = Color.Blue,
@@ -1203,7 +1181,6 @@ fun UniversityMap(
                     }
                 }
 
-                // всплывашка по заведению
                 selectedFoodPlaceLocal?.let { place ->
                     val cellW = mapW / MapConfig.COLS
                     val cellH = mapH / MapConfig.ROWS
