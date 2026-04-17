@@ -347,8 +347,8 @@ fun MainScreen(
                 }
 
                 val startTime = java.time.LocalTime.now()
-
-                val bestRoute = buildOptimalFoodRouteGenetic(
+                val optimizer = com.example.universitymapproj.routing.GeneticFoodRouteOptimizer()
+                val bestRoute = optimizer.findOptimalRoute(
                     userLocation = UserLocation(userRow, userCol),
                     requiredDishes = requiredDishes,
                     foodPlaces = foodPlaces.toList(),
@@ -357,7 +357,7 @@ fun MainScreen(
                     generations = 100,
                     mutationChance = 0.15,
                     startTime = startTime,
-                    speedMetersPerSecond = 5000.0 / 3600.0, // 5 км/ч
+                    speedMetersPerSecond = 5000.0 / 3600.0,
                     stayMinutes = 30
                 )
 
