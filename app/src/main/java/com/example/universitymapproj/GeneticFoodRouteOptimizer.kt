@@ -350,7 +350,7 @@ class GeneticFoodRouteOptimizer {
         val route = individual.route.toMutableList()
 
         if (route.size >= 2) {
-            when (Random.nextInt(3)) {
+            when (Random.nextInt(2)) {
                 0 -> {
                     val i = Random.nextInt(route.size)
                     val j = Random.nextInt(route.size)
@@ -364,17 +364,6 @@ class GeneticFoodRouteOptimizer {
                     val from = minOf(i, j)
                     val to = maxOf(i, j)
                     route.subList(from, to + 1).reverse()
-                }
-                2 -> {
-                    val removable = route.indices.shuffled().firstOrNull()
-                    if (removable != null) {
-                        val test = route.toMutableList()
-                        test.removeAt(removable)
-                        if (coversAllDishes(test, requiredDishes)) {
-                            route.clear()
-                            route.addAll(test)
-                        }
-                    }
                 }
             }
         }
