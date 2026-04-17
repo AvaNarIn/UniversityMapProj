@@ -3,11 +3,13 @@ package com.example.universitymapproj
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -195,7 +197,15 @@ fun LunchDecisionTreeCard(
                             state.resetPrediction()
                             lastGeneratedInfo = "Сгенерирован CSV (может быть очень большой)."
                         },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1976D2),
+                            contentColor = Color.White
+                        )
+
                     ) { Text("Сгенерировать CSV") }
 
                     Button(
@@ -221,7 +231,13 @@ fun LunchDecisionTreeCard(
                                 state.treePretty = ""
                             }
                         },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1976D2),
+                            contentColor = Color.White
+                        )
+
                     ) { Text("Обучить из CSV") }
                 }
 
@@ -271,7 +287,12 @@ fun LunchDecisionTreeCard(
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1976D2),
+                        contentColor = Color.White
+                    )
                 ) {
                     Text("Сгенерировать + обучить (без вывода CSV)")
                 }
@@ -356,7 +377,14 @@ fun LunchDecisionTreeCard(
                         }
                     },
                     enabled = (tree != null && !busy),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1976D2),
+                        contentColor = Color.White
+                    )
+
                 ) {
                     Text(
                         when {

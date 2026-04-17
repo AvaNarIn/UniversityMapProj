@@ -645,7 +645,7 @@ fun Controls(
             }
         }
 
-        // ------------------- МАРШРУТ ПО ДОСТОПРИМЕЧАТЕЛЬНОСТЯМ -------------------
+
         ControlCard {
             MainButton(
                 if (landmarkRouteMode) "Скрыть маршрут по достопримечательностям" else "Маршрут по достопримечательностям",
@@ -697,16 +697,14 @@ fun Controls(
             }
         }
 
-        MainButton("Сменить режим", onChangeMode, isLandscape = isLandscape)
-
-        Spacer(modifier = Modifier.height(12.dp))
-
         LunchDecisionTreeCard(
             isDeveloper = isDev,
             foodPlaces = foodPlaces,
             userCell = userCell,
             modifier = Modifier.fillMaxWidth()
         )
+        Spacer(modifier = Modifier.height(12.dp))
+        MainButton("Сменить режим", onChangeMode, isLandscape = isLandscape)
     }
 
     if (showResetDialog) {
@@ -733,6 +731,7 @@ fun Controls(
             }
         )
     }
+
 }
 @Composable
 fun UniversityMap(
