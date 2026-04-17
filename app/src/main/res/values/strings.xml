@@ -1,3 +1,152 @@
 <resources>
     <string name="app_name">СampusTSU</string>
+
+    <string name="mode_choose_title">Выберите режим</string>
+    <string name="mode_user">Пользователь</string>
+    <string name="mode_developer">Разработчик</string>
+
+    <string name="header_title">Навигатор Университета</string>
+
+    <string name="btn_change_mode">Сменить режим</string>
+    <string name="btn_cancel">Отмена</string>
+    <string name="btn_add">Добавить</string>
+    <string name="btn_build">Построить</string>
+    <string name="btn_clear">Очистить</string>
+    <string name="btn_run">Запустить</string>
+    <string name="btn_stop">Остановить</string>
+    <string name="btn_save">Сохранить</string>
+    <string name="btn_recognize">Распознать</string>
+    <string name="error_prefix">Ошибка: %1$s</string>
+
+    <string name="dev_show_grid">Показать сетку</string>
+    <string name="dev_hide_grid">Скрыть сетку</string>
+    <string name="dev_edit_map">Редактировать карту</string>
+    <string name="dev_view_mode">Режим просмотра</string>
+    <string name="dev_export_log">Выгрузить лог</string>
+    <string name="dev_eraser">Ластик</string>
+    <string name="dev_eraser_on">Ластик: ВКЛ</string>
+
+    <string name="dev_food_add">Добавить общепит</string>
+    <string name="dev_food_add_on">Добавление ВКЛ</string>
+    <string name="dev_food_delete">Удалить общепит</string>
+    <string name="dev_food_delete_on">Удаление ВКЛ</string>
+
+    <string name="dialog_add_food_title">Добавление нового общепита</string>
+    <string name="field_title">Название</string>
+    <string name="field_description">Описание</string>
+    <string name="field_working_hours">Часы работы</string>
+    <string name="field_place_type">Тип заведения</string>
+    <string name="field_dishes_csv">Блюда (через запятую)</string>
+
+    <string name="default_new_place_title">Новый общепит</string>
+    <string name="default_new_place_description">Описание</string>
+    <string name="default_new_place_hours">08:00-18:00</string>
+    <string name="default_new_place_type">Кафе</string>
+    <string name="default_new_place_dishes">Блюдо1, Блюдо2</string>
+    <string name="default_new_place_single_dish">Блюдо</string>
+
+   <string name="nn_training_title">Обучение нейросети</string>
+    <string name="nn_train">Обучить нейросеть</string>
+    <string name="nn_training_in_progress">Идёт обучение…</string>
+    <string name="nn_reset_model">Сбросить модель</string>
+
+    <string name="rating_for_place">Оценка для: %1$s</string>
+    <string name="rating_current_avg">⭐ Текущий рейтинг: %1$s</string>
+    <string name="rating_draw_digit_hint">Нарисуйте цифру (1-9):</string>
+    <string name="rating_recognized">Распознано: %1$d</string>
+    <string name="rating_save">Сохранить оценку</string>
+    <string name="rating_choose_place_hint">Выберите заведение на карте, чтобы оставить оценку</string>
+
+    <string name="clustering_title">Кластеризация</string>
+    <string name="clustering_back_to_map">Вернуться к карте</string>
+    <string name="clustering_k_label">Количество кластеров K</string>
+    <string name="clustering_selected_points">Выбрано точек: %1$d</string>
+    <string name="clustering_run_kmeans">Запустить K-средних</string>
+
+    <string name="food_route_title">Маршрут по блюдам</string>
+    <string name="food_route_hide">Скрыть поиск по блюдам</string>
+    <string name="user_row_label">Строка пользователя</string>
+    <string name="user_col_label">Столбец пользователя</string>
+    <string name="dishes_label">Блюда через запятую</string>
+
+    <string name="msg_bad_user_coords">Некорректные координаты пользователя</string>
+    <string name="msg_user_coords_outside_map">Координаты пользователя вне карты</string>
+    <string name="msg_user_on_blocked_cell">Пользователь стоит на непроходимой клетке</string>
+    <string name="msg_enter_at_least_one_dish">Введите хотя бы одно блюдо</string>
+    <string name="msg_calc_genetic_route">Считаю маршрут (генетический алгоритм)…</string>
+    <string name="msg_route_not_found">Маршрут не найден</string>
+
+    <string name="landmark_route_title">Маршрут по достопримечательностям</string>
+    <string name="landmark_route_hide">Скрыть маршрут по достопримечательностям</string>
+    <string name="landmark_choose_title">Выберите достопримечательности:</string>
+
+    <string name="msg_user_pos_unknown">Не удалось определить позицию пользователя</string>
+    <string name="msg_choose_at_least_one_landmark">Выберите хотя бы одну достопримечательность</string>
+    <string name="msg_calc_landmark_route">Считаю маршрут (муравьиный + A*)…</string>
+    <string name="msg_failed_build_route">Не удалось построить маршрут</string>
+    <string name="msg_landmark_route_built">Маршрут построен: %1$s\nДлина: %2$d клеток</string>
+
+    <string name="astar_panel_title_on">A*: ВЫКЛ</string>
+    <string name="astar_panel_title_off">A*: визуализация</string>
+
+    <string name="astar_obstacles_on">Препятствия: ВКЛ</string>
+    <string name="astar_obstacles_off">Препятствия</string>
+
+    <string name="astar_select_start_on">Выбор START: ВКЛ</string>
+    <string name="astar_select_start_off">Выбрать START</string>
+
+    <string name="astar_select_end_on">Выбор END: ВКЛ</string>
+    <string name="astar_select_end_off">Выбрать END</string>
+
+    <string name="astar_status_running">идёт…</string>
+    <string name="astar_status_no_path">пути нет</string>
+    <string name="astar_status_complete">готово</string>
+    <string name="astar_status_waiting">ожидание</string>
+
+    <string name="astar_info">
+        Start: %1$s\nEnd: %2$s\nOpen: %3$d, Closed: %4$d\nСтатус: %5$s
+    </string>
+
+    <string name="lunch_tree_title">Дерево решений: куда пойти на обед</string>
+
+    <string name="lunch_dev_mode_hint">
+        Режим разработчика: CSV → обучение дерева. Есть быстрый режим генерации+обучения без вывода CSV.
+    </string>
+    <string name="lunch_csv_field_label">Обучающая выборка (CSV) — вручную/для проверки</string>
+    <string name="lunch_generate_csv">Сгенерировать CSV</string>
+    <string name="lunch_train_from_csv">Обучить из CSV</string>
+    <string name="lunch_generate_and_train">Сгенерировать + обучить (без вывода CSV)</string>
+    <string name="lunch_tree_built_text">Дерево построено (текстовый вид):</string>
+
+    <string name="lunch_user_mode_hint">Режим пользователя: выберите параметры и несколько блюд/категорий.</string>
+    <string name="lunch_wants_title">Что хочется (можно несколько):</string>
+    <string name="lunch_choose_place_btn">Выбрать заведение</string>
+    <string name="lunch_tree_not_ready">Дерево не готово</string>
+    <string name="lunch_training_busy">Обучение…</string>
+
+    <string name="lunch_recommended_prefix">Рекомендовано: %1$s</string>
+    <string name="lunch_distance_cells">Дистанция до точки (клетки): %1$d</string>
+    <string name="lunch_path_reasons_title">Путь (причины выбора):</string>
+
+    <string name="lunch_feature_location">Где вы сейчас</string>
+    <string name="lunch_feature_budget">Бюджет</string>
+    <string name="lunch_feature_time">Сколько есть времени</string>
+    <string name="lunch_feature_queue">Очередь (готовность ждать)</string>
+    <string name="lunch_feature_weather">Погода</string>
+    <string name="lunch_feature_walk">Готовность пройтись</string>
+
+    <string name="model_loaded_success">✅ Модель загружена!</string>
+    <string name="reset_model_confirm">Вы уверены, что хотите сбросить обученную модель нейросети?</string>
+    <string name="model_reset">Модель сброшена</string>
+
+    <string name="lunch_want_coffee">Кофе</string>
+    <string name="lunch_want_first">Первое</string>
+    <string name="lunch_want_second">Второе</string>
+    <string name="lunch_want_salad">Салат</string>
+    <string name="lunch_want_dessert">Десерт</string>
+    <string name="lunch_want_drinks">Напитки</string>
+    <string name="lunch_want_snack">Перекус</string>
+    <string name="lunch_want_pancakes">Блины</string>
+    <string name="lunch_want_shawarma">Шаурма</string>
+    <string name="lunch_want_fastfood">Фастфуд</string>
 </resources>

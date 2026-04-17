@@ -2,8 +2,15 @@ package com.example.universitymapproj
 
 import android.content.Context
 import android.graphics.Bitmap
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -31,6 +38,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -99,6 +107,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawClusterZones(
     alphaFill: Float = 0.22f,
     drawBorders: Boolean = true
 ) {
+    // заливка (без границ — как в твоей версии)
     for (r in 0 until MapConfig.ROWS) {
         for (c in 0 until MapConfig.COLS) {
             val ci = zoneIndex[r][c]
@@ -153,7 +162,8 @@ fun MainButton(
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.97f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessLow)
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "btnScale"
     )
 
     Button(
@@ -185,18 +195,19 @@ fun MainButton(
 
 @Composable
 fun Header() {
-    @Composable
-    fun Header() {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(80.dp)
-                .background(Color(0xFF1976D2))
-                .padding(top = 24.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("Навигатор Университета", color = Color.White, fontSize = 20.sp)
-        }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(80.dp)
+            .background(Color(0xFF1976D2))
+            .padding(top = 24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = stringResource(R.string.header_title),
+            color = Color.White,
+            fontSize = 20.sp
+        )
     }
 }
 
@@ -281,6 +292,7 @@ fun Controls(
 
     var drawingView by remember { mutableStateOf<DrawingView?>(null) }
     var predictedRating by remember { mutableStateOf<Int?>(null) }
+    var showResetDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -294,20 +306,28 @@ fun Controls(
 
         if (isDev) {
             ControlCard {
-                MainButton(if (showGrid) "Скрыть сетку" else "Показать сетку", onGridClick, isLandscape = isLandscape)
+                MainButton(
+                    text = if (showGrid) stringResource(R.string.dev_hide_grid) else stringResource(R.string.dev_show_grid),
+                    onClick = onGridClick,
+                    isLandscape = isLandscape
+                )
 
                 MainButton(
-                    if (editMode) "Режим просмотра" else "Редактировать карту",
-                    onEditClick,
+                    text = if (editMode) stringResource(R.string.dev_view_mode) else stringResource(R.string.dev_edit_map),
+                    onClick = onEditClick,
                     isLandscape = isLandscape,
                     enabled = !astarMode
                 )
 
-                MainButton("Выгрузить лог", onExportClick, isLandscape = isLandscape)
+                MainButton(
+                    text = stringResource(R.string.dev_export_log),
+                    onClick = onExportClick,
+                    isLandscape = isLandscape
+                )
 
                 MainButton(
-                    if (isErasing) "Ластик: ВКЛ" else "Ластик",
-                    onToggleErasing,
+                    text = if (isErasing) stringResource(R.string.dev_eraser_on) else stringResource(R.string.dev_eraser),
+                    onClick = onToggleErasing,
                     isLandscape = isLandscape,
                     enabled = !astarMode
                 )
@@ -315,15 +335,15 @@ fun Controls(
 
             ControlCard {
                 MainButton(
-                    if (foodEditMode == FoodEditMode.ADD) "Добавление ВКЛ" else "Добавить общепит",
-                    onFoodAddClick,
+                    text = if (foodEditMode == FoodEditMode.ADD) stringResource(R.string.dev_food_add_on) else stringResource(R.string.dev_food_add),
+                    onClick = onFoodAddClick,
                     enabled = !clusteringMode && !foodRouteMode && !landmarkRouteMode && !astarMode,
                     isLandscape = isLandscape
                 )
 
                 MainButton(
-                    if (foodEditMode == FoodEditMode.DELETE) "Удаление ВКЛ" else "Удалить общепит",
-                    onFoodDeleteClick,
+                    text = if (foodEditMode == FoodEditMode.DELETE) stringResource(R.string.dev_food_delete_on) else stringResource(R.string.dev_food_delete),
+                    onClick = onFoodDeleteClick,
                     enabled = !clusteringMode && !foodRouteMode && !landmarkRouteMode && !astarMode,
                     isLandscape = isLandscape
                 )
@@ -340,10 +360,10 @@ fun Controls(
                         .animateContentSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Обучение нейросети", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.nn_training_title), fontWeight = FontWeight.Bold)
 
                     MainButton(
-                        text = if (isTraining) "Идёт обучение..." else "Обучить нейросеть",
+                        text = if (isTraining) stringResource(R.string.nn_training_in_progress) else stringResource(R.string.nn_train),
                         onClick = {
                             if (isTraining) return@MainButton
                             onTrainingStart()
@@ -377,7 +397,6 @@ fun Controls(
                         isLandscape = isLandscape
                     )
 
-
                     AnimatedVisibility(
                         visible = trainingProgress.isNotBlank(),
                         enter = fadeIn() + expandVertically(),
@@ -392,7 +411,7 @@ fun Controls(
                     }
 
                     MainButton(
-                        text = "Сбросить модель",
+                        text = stringResource(R.string.nn_reset_model),
                         onClick = {
                             if (modelFile.exists()) modelFile.delete()
                             neuralNetwork.initializeRandomWeights()
@@ -405,8 +424,8 @@ fun Controls(
 
             ControlCard {
                 MainButton(
-                    if (astarMode) "A*: ВЫКЛ" else "A*: визуализация",
-                    onAstarModeToggle,
+                    text = if (astarMode) stringResource(R.string.astar_panel_title_on) else stringResource(R.string.astar_panel_title_off),
+                    onClick = onAstarModeToggle,
                     isLandscape = isLandscape
                 )
 
@@ -416,60 +435,65 @@ fun Controls(
                     exit = fadeOut() + shrinkVertically()
                 ) {
                     Column {
+                        val startText = astarStart?.toString() ?: "-"
+                        val endText = astarEnd?.toString() ?: "-"
+
+                        val statusText = when {
+                            isAstarRunning -> stringResource(R.string.astar_status_running)
+                            astarVisualizationState.isNoPath -> stringResource(R.string.astar_status_no_path)
+                            astarVisualizationState.isComplete -> stringResource(R.string.astar_status_complete)
+                            else -> stringResource(R.string.astar_status_waiting)
+                        }
+
                         Text(
-                            buildString {
-                                append("Start: ${astarStart ?: "-"}\n")
-                                append("End: ${astarEnd ?: "-"}\n")
-                                append("Open: ${astarVisualizationState.openSet.size}, Closed: ${astarVisualizationState.closedSet.size}\n")
-                                append(
-                                    when {
-                                        isAstarRunning -> "Статус: идёт…"
-                                        astarVisualizationState.isNoPath -> "Статус: пути нет"
-                                        astarVisualizationState.isComplete -> "Статус: готово"
-                                        else -> "Статус: ожидание"
-                                    }
-                                )
-                            },
+                            text = stringResource(
+                                R.string.astar_info,
+                                startText,
+                                endText,
+                                astarVisualizationState.openSet.size,
+                                astarVisualizationState.closedSet.size,
+                                statusText
+                            ),
                             fontSize = 12.sp
                         )
 
                         MainButton(
-                            if (obstacleDrawingEnabled) "Препятствия: ВКЛ" else "Препятствия",
-                            onObstacleDrawingToggle,
+                            text = if (obstacleDrawingEnabled) stringResource(R.string.astar_obstacles_on) else stringResource(R.string.astar_obstacles_off),
+                            onClick = onObstacleDrawingToggle,
                             isLandscape = isLandscape
                         )
 
                         MainButton(
-                            if (selectingStart) "Выбор START: ВКЛ" else "Выбрать START",
-                            onSelectStartClick,
+                            text = if (selectingStart) stringResource(R.string.astar_select_start_on) else stringResource(R.string.astar_select_start_off),
+                            onClick = onSelectStartClick,
                             isLandscape = isLandscape,
                             enabled = !isAstarRunning
                         )
 
                         MainButton(
-                            if (selectingEnd) "Выбор END: ВКЛ" else "Выбрать END",
-                            onSelectEndClick,
+                            text = if (selectingEnd) stringResource(R.string.astar_select_end_on) else stringResource(R.string.astar_select_end_off),
+                            onClick = onSelectEndClick,
                             isLandscape = isLandscape,
                             enabled = !isAstarRunning
                         )
 
                         MainButton(
-                            "Запустить",
-                            onRunAstar,
+                            text = stringResource(R.string.btn_run),
+                            onClick = onRunAstar,
                             isLandscape = isLandscape,
                             enabled = !isAstarRunning && astarStart != null && astarEnd != null
                         )
 
                         MainButton(
-                            "Остановить",
-                            onStopAstar,
+                            text = stringResource(R.string.btn_stop),
+                            onClick = onStopAstar,
                             isLandscape = isLandscape,
                             enabled = isAstarRunning
                         )
 
                         MainButton(
-                            "Очистить",
-                            onClearAstar,
+                            text = stringResource(R.string.btn_clear),
+                            onClick = onClearAstar,
                             isLandscape = isLandscape,
                             enabled = !isAstarRunning
                         )
@@ -490,7 +514,10 @@ fun Controls(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (selectedFoodPlace != null) {
-                    Text("Оценка для: ${selectedFoodPlace.title}", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = stringResource(R.string.rating_for_place, selectedFoodPlace.title),
+                        fontWeight = FontWeight.Bold
+                    )
 
                     val avgRating = ratings
                         .filter { it.row == selectedFoodPlace.row && it.col == selectedFoodPlace.col }
@@ -500,13 +527,13 @@ fun Controls(
 
                     if (avgRating > 0) {
                         Text(
-                            "⭐ Текущий рейтинг: ${String.format("%.1f", avgRating)}",
+                            text = stringResource(R.string.rating_current_avg, String.format("%.1f", avgRating)),
                             color = Color(0xFF1976D2),
                             fontWeight = FontWeight.Bold
                         )
                     }
 
-                    Text("Нарисуйте цифру (1-9):", fontSize = 12.sp)
+                    Text(stringResource(R.string.rating_draw_digit_hint), fontSize = 12.sp)
 
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                         DrawingCanvasView(
@@ -538,7 +565,7 @@ fun Controls(
                                 }
                             },
                             modifier = Modifier.weight(1f)
-                        ) { Text("Распознать") }
+                        ) { Text(stringResource(R.string.btn_recognize)) }
 
                         Button(
                             onClick = {
@@ -546,18 +573,18 @@ fun Controls(
                                 predictedRating = null
                             },
                             modifier = Modifier.weight(1f)
-                        ) { Text("Очистить") }
+                        ) { Text(stringResource(R.string.btn_clear)) }
                     }
 
                     predictedRating?.let { rating ->
                         Text(
-                            "Распознано: $rating",
+                            text = stringResource(R.string.rating_recognized, rating),
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
 
                         MainButton(
-                            text = "Сохранить оценку",
+                            text = stringResource(R.string.rating_save),
                             onClick = {
                                 ratings.add(PlaceRating(row = selectedFoodPlace.row, col = selectedFoodPlace.col, rating = rating))
                                 onSaveRatings()
@@ -569,7 +596,7 @@ fun Controls(
                     }
                 } else {
                     Text(
-                        "Выберите заведение на карте, чтобы оставить оценку",
+                        text = stringResource(R.string.rating_choose_place_hint),
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -579,8 +606,8 @@ fun Controls(
 
         ControlCard {
             MainButton(
-                if (clusteringMode) "Вернуться к карте" else "Кластеризация",
-                onClusteringToggle,
+                text = if (clusteringMode) stringResource(R.string.clustering_back_to_map) else stringResource(R.string.clustering_title),
+                onClick = onClusteringToggle,
                 isLandscape = isLandscape,
                 enabled = !astarMode
             )
@@ -594,19 +621,19 @@ fun Controls(
                     OutlinedTextField(
                         value = clusterCountText,
                         onValueChange = onClusterCountChange,
-                        label = { Text("Количество кластеров K") },
+                        label = { Text(stringResource(R.string.clustering_k_label)) },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Text("Выбрано точек: $selectedPointsCount")
-                    MainButton("Запустить K-средних", onRunClustering, isLandscape = isLandscape)
+                    Text(stringResource(R.string.clustering_selected_points, selectedPointsCount))
+                    MainButton(stringResource(R.string.clustering_run_kmeans), onRunClustering, isLandscape = isLandscape)
                 }
             }
         }
 
         ControlCard {
             MainButton(
-                if (foodRouteMode) "Скрыть поиск по блюдам" else "Маршрут по блюдам",
-                onFoodRouteToggle,
+                text = if (foodRouteMode) stringResource(R.string.food_route_hide) else stringResource(R.string.food_route_title),
+                onClick = onFoodRouteToggle,
                 isLandscape = isLandscape,
                 enabled = !astarMode
             )
@@ -615,13 +642,13 @@ fun Controls(
                 OutlinedTextField(
                     value = userRowText,
                     onValueChange = onUserRowChange,
-                    label = { Text("Строка пользователя") },
+                    label = { Text(stringResource(R.string.user_row_label)) },
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = userColText,
                     onValueChange = onUserColChange,
-                    label = { Text("Столбец пользователя") },
+                    label = { Text(stringResource(R.string.user_col_label)) },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -635,11 +662,11 @@ fun Controls(
                     OutlinedTextField(
                         value = dishesText,
                         onValueChange = onDishesChange,
-                        label = { Text("Блюда через запятую") },
+                        label = { Text(stringResource(R.string.dishes_label)) },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    MainButton("Построить", onRunFoodRoute, isLandscape = isLandscape)
-                    MainButton("Очистить", onClearFoodRoute, isLandscape = isLandscape)
+                    MainButton(stringResource(R.string.btn_build), onRunFoodRoute, isLandscape = isLandscape)
+                    MainButton(stringResource(R.string.btn_clear), onClearFoodRoute, isLandscape = isLandscape)
 
                     if (routeInfoText.isNotBlank()) {
                         Text(routeInfoText)
@@ -650,8 +677,8 @@ fun Controls(
 
         ControlCard {
             MainButton(
-                if (landmarkRouteMode) "Скрыть маршрут по достопримечательностям" else "Маршрут по достопримечательностям",
-                onLandmarkRouteToggle,
+                text = if (landmarkRouteMode) stringResource(R.string.landmark_route_hide) else stringResource(R.string.landmark_route_title),
+                onClick = onLandmarkRouteToggle,
                 isLandscape = isLandscape,
                 enabled = !astarMode
             )
@@ -662,7 +689,7 @@ fun Controls(
                 exit = fadeOut() + shrinkVertically()
             ) {
                 Column {
-                    Text("Выберите достопримечательности:", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.landmark_choose_title), fontWeight = FontWeight.Bold)
 
                     landmarks.forEach { landmark ->
                         Row(
@@ -689,8 +716,8 @@ fun Controls(
                         }
                     }
 
-                    MainButton("Построить", onRunLandmarkRoute, isLandscape = isLandscape)
-                    MainButton("Очистить", onClearLandmarkRoute, isLandscape = isLandscape)
+                    MainButton(stringResource(R.string.btn_build), onRunLandmarkRoute, isLandscape = isLandscape)
+                    MainButton(stringResource(R.string.btn_clear), onClearLandmarkRoute, isLandscape = isLandscape)
 
                     if (landmarkRouteInfo.isNotBlank()) {
                         Text(landmarkRouteInfo)
@@ -699,15 +726,41 @@ fun Controls(
             }
         }
 
-        MainButton("Сменить режим", onChangeMode, isLandscape = isLandscape)
-
         Spacer(modifier = Modifier.height(12.dp))
+        MainButton(stringResource(R.string.btn_change_mode), onChangeMode, isLandscape = isLandscape)
+
 
         LunchDecisionTreeCard(
             isDeveloper = isDev,
             foodPlaces = foodPlaces,
             userCell = userCell,
             modifier = Modifier.fillMaxWidth()
+        )
+
+    }
+
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = { Text("Сброс модели") },
+            text = { Text("Вы уверены, что хотите сбросить обученную модель нейросети?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (modelFile.exists()) modelFile.delete()
+                        neuralNetwork.initializeRandomWeights()
+                        onProgressUpdate("Модель сброшена")
+                        showResetDialog = false
+                    }
+                ) {
+                    Text("Сбросить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetDialog = false }) {
+                    Text("Отмена")
+                }
+            }
         )
     }
 }
@@ -1144,7 +1197,6 @@ fun UniversityMap(
                         )
                     }
 
-
                     if (clusteredPoints.isNotEmpty()) {
                         clusteredPoints.forEach { point ->
                             drawRect(
@@ -1162,7 +1214,6 @@ fun UniversityMap(
                             )
                         }
                     }
-
 
                     startPoint?.let { (r, c) ->
                         drawCircle(
@@ -1188,16 +1239,15 @@ fun UniversityMap(
                     val placeRatings = ratings.filter { it.row == place.row && it.col == place.col }
                     val avgRating = if (placeRatings.isNotEmpty()) placeRatings.map { it.rating }.average() else 0.0
 
-                    val dishesText =
-                        if (place.dishes.isNotEmpty()) place.dishes.joinToString(", ") else ""
+                    val dishesTextLocal = if (place.dishes.isNotEmpty()) place.dishes.joinToString(", ") else ""
 
                     Text(
                         text = buildString {
                             append(place.title)
                             if (avgRating > 0) append("\n⭐ Рейтинг: ${String.format("%.1f", avgRating)}")
-                            if (dishesText.isNotBlank()) {
+                            if (dishesTextLocal.isNotBlank()) {
                                 append("\nМеню: ")
-                                append(dishesText)
+                                append(dishesTextLocal)
                             }
                         },
                         color = Color.Black,
