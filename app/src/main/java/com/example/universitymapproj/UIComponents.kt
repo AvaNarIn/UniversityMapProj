@@ -1158,13 +1158,23 @@ fun UniversityMap(
                     }
 
                     userCell?.let { (r, c) ->
-                        drawRect(
+                        drawCircle(
                             color = Color.Red.copy(alpha = 0.9f),
-                            topLeft = Offset(c * cw, r * ch),
-                            size = Size(cw, ch)
+                            radius = cw / 1f,
+                            center = Offset(
+                                x = c * cw + cw / 2,
+                                y = r * ch + ch / 2
+                            )
+                        )
+
+
+                        drawCircle(
+                            color = Color.White,
+                            radius = cw / 1f,
+                            center = Offset(c * cw + cw / 2, r * ch + ch / 2),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f)
                         )
                     }
-
 
                     if (clusteredPoints.isNotEmpty()) {
                         clusteredPoints.forEach { point ->
