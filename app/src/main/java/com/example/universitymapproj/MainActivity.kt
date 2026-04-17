@@ -35,9 +35,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import com.example.universitymapproj.R
 import com.example.universitymapproj.MainScreen
-import androidx.compose.runtime.CompositionLocalProvider
-import com.example.universitymapproj.LocalLunchDecisionTreeState
-import com.example.universitymapproj.LunchDecisionTreeState
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -47,45 +44,19 @@ class MainActivity : ComponentActivity() {
         File(filesDir, "model.dat").delete()
         enableEdgeToEdge()
         setContent {
-            val lunchState = remember { LunchDecisionTreeState() }
+            var appModeString by rememberSaveable { mutableStateOf<String?>(null) }
+            val appMode = appModeString?.let { AppMode.valueOf(it) }
 
-            CompositionLocalProvider(
-                LocalLunchDecisionTreeState provides lunchState
-            ) {
-                var appModeString by rememberSaveable { mutableStateOf<String?>(null) }
-                val appMode = appModeString?.let { AppMode.valueOf(it) }
-
-                if (appMode == null) {
-                    ModeSelectionScreen { selected ->
-                        appModeString = selected.name
-                    }
-                } else {
-                    MainScreen(
-                        appMode = appMode,
-                        onChangeMode = { appModeString = null }
-                    )
+            if (appMode == null) {
+                ModeSelectionScreen { selected ->
+                    appModeString = selected.name
                 }
+            } else {
+                MainScreen(
+                    appMode = appMode,
+                    onChangeMode = { appModeString = null }
+                )
             }
         }
     }
-}
-
-fun preprocessBitmap(bitmap: Bitmap): FloatArray {
-    val resized = Bitmap.createScaledBitmap(bitmap, 50, 50, true)
-    val input = FloatArray(50 * 50)
-
-    for (y in 0 until 50) {
-        for (x in 0 until 50) {
-            val pixel = resized.getPixel(x, y)
-            val r = android.graphics.Color.red(pixel)
-            val g = android.graphics.Color.green(pixel)
-            val b = android.graphics.Color.blue(pixel)
-
-            val gray = (r + g + b) / 3f / 255f
-            input[y * 50 + x] = 1f - gray
-        }
-    }
-
-    Log.d("PREPROCESS", "Preprocessed bitmap: ${input.count { it > 0.5f }} black pixels")
-    return input
 }

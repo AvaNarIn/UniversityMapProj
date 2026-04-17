@@ -3,6 +3,7 @@ package com.example.universitymapproj.pathfinding
 import com.example.universitymapproj.MapConfig.COLS
 import com.example.universitymapproj.MapConfig.ROWS
 import com.example.universitymapproj.models.Node
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 
 class AStarPathfinder(private val grid: Array<BooleanArray>) {
@@ -61,6 +62,133 @@ class AStarPathfinder(private val grid: Array<BooleanArray>) {
         }
         return emptyList()
     }
+
+    suspend fun findPathStepByStep(
+        sr: Int, sc: Int, er: Int, ec: Int,
+        onStateUpdate: (AStarVisualState) -> Unit
+    ): List<Pair<Int, Int>> {
+        val open = mutableListOf(Node(sr, sc))
+        val closed = mutableSetOf<Pair<Int, Int>>()
+        val gCost = Array(ROWS) { IntArray(COLS) { Int.MAX_VALUE } }
+        gCost[sr][sc] = 0
+
+        while (open.isNotEmpty()) {
+            val curr = open.minByOrNull { it.f }!!
+
+            onStateUpdate(
+                AStarVisualState(
+                    openSet = open.map { it.r to it.c }.toSet(),
+                    closedSet = closed.toSet(),
+                    current = curr.r to curr.c,
+                    path = emptyList(),
+                    isComplete = false
+                )
+            )
+            delay(50)
+
+            if (curr.r == er && curr.c == ec) {
+                val path = reconstructPath(curr)
+                onStateUpdate(
+                    AStarVisualState(
+                        openSet = open.map { it.r to it.c }.toSet(),
+                        closedSet = closed.toSet(),
+                        current = curr.r to curr.c,
+                        path = path,
+                        isComplete = true
+                    )
+                )
+                return path
+            }
+
+            open.remove(curr)
+            closed.add(curr.r to curr.c)
+
+            val directions = listOf(
+                0 to 1, 0 to -1, 1 to 0, -1 to 0,
+                1 to 1, 1 to -1, -1 to 1, -1 to -1
+            )
+
+            for ((dr, dc) in directions) {
+                val nr = curr.r + dr
+                val nc = curr.c + dc
+
+                if (nr !in 0 until ROWS || nc !in 0 until COLS) continue
+                if (!grid[nr][nc]) continue
+                if (nr to nc in closed) continue
+
+                val moveCost = if (dr != 0 && dc != 0) 14 else 10
+                val newG = curr.g + moveCost
+
+                if (newG < gCost[nr][nc]) {
+                    gCost[nr][nc] = newG
+                    val h = (abs(nr - er) + abs(nc - ec)) * 10
+
+                    val existing = open.find { it.r == nr && it.c == nc }
+                    if (existing != null) {
+                        existing.g = newG
+                        existing.h = h
+                        existing.parent = curr
+                    } else {
+                        open.add(Node(nr, nc, newG, h, curr))
+                    }
+                }
+            }
+        }
+
+        onStateUpdate(
+            AStarVisualState(
+                openSet = emptySet(),
+                closedSet = closed.toSet(),
+                current = null,
+                path = emptyList(),
+                isComplete = true,
+                isNoPath = true
+            )
+        )
+        return emptyList()
+    }
+
+    private fun reconstructPath(endNode: Node): List<Pair<Int, Int>> {
+        val path = mutableListOf<Pair<Int, Int>>()
+        var temp: Node? = endNode
+        while (temp != null) {
+            path.add(temp.r to temp.c)
+            temp = temp.parent
+        }
+        return path.reversed()
+    }
+}
+
+data class AStarVisualState(
+    val openSet: Set<Pair<Int, Int>> = emptySet(),
+    val closedSet: Set<Pair<Int, Int>> = emptySet(),
+    val current: Pair<Int, Int>? = null,
+    val path: List<Pair<Int, Int>> = emptyList(),
+    val isComplete: Boolean = false,
+    val isNoPath: Boolean = false
+)
+
+fun geoToGrid(
+    userLat: Double,
+    userLon: Double,
+    rows: Int = ROWS,
+    cols: Int = COLS
+): Pair<Int, Int>? {
+    val latTop = 56.46594
+    val latBottom = 56.471736
+    val lonLeft = 84.939305
+    val lonRight = 84.954786
+
+    val latClamped = userLat.coerceIn(latTop, latBottom)
+    val lonClamped = userLon.coerceIn(lonLeft, lonRight)
+
+    val latNorm = (latClamped - latBottom) / (latTop - latBottom)
+    val lonNorm = (lonClamped - lonLeft) / (lonRight - lonLeft)
+
+    val row = ((1 - latNorm) * rows).toInt().coerceIn(0, rows - 1)
+    val col = (lonNorm * cols).toInt().coerceIn(0, cols - 1)
+
+    return row to col
 }
 
 class RouteDistanceCache(private val grid: Array<BooleanArray>) {

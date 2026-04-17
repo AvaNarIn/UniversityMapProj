@@ -1,5 +1,6 @@
 package com.example.universitymapproj
 
+import android.annotation.SuppressLint
 import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -41,6 +43,9 @@ import com.example.universitymapproj.models.Landmark
 import com.example.universitymapproj.models.Obshepit
 import com.example.universitymapproj.models.PlaceRating
 import com.example.universitymapproj.models.UserLocation
+import com.example.universitymapproj.pathfinding.AStarPathfinder
+import com.example.universitymapproj.pathfinding.AStarVisualState
+import com.example.universitymapproj.pathfinding.geoToGrid
 import com.example.universitymapproj.routing.buildFullPathThroughPoints
 import com.example.universitymapproj.routing.buildFullPathThroughRoute
 import com.example.universitymapproj.routing.buildLandmarkVisitOrder
@@ -50,9 +55,13 @@ import com.example.universitymapproj.serialization.exportFoodPlacesToString
 import com.example.universitymapproj.serialization.exportGridToString
 import com.example.universitymapproj.serialization.importFoodPlacesFromString
 import com.example.universitymapproj.serialization.importGridFromString
+import com.google.android.gms.location.LocationServices
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.io.File
+import kotlinx.coroutines.tasks.await
 
-
+@SuppressLint("MissingPermission")
 @Composable
 fun MainScreen(
     appMode: AppMode,
@@ -61,6 +70,7 @@ fun MainScreen(
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
 
     var selectedFoodPlace by remember { mutableStateOf<Obshepit?>(null) }
     var gridVisible by remember { mutableStateOf(false) }
@@ -86,10 +96,26 @@ fun MainScreen(
     var trainingProgress by remember { mutableStateOf("") }
     var collectingMode by remember { mutableStateOf(false) }
     var currentLabel by remember { mutableStateOf(1) }
+
+
+    // A* visualization states
+    var astarMode by remember { mutableStateOf(false) }
+    var obstacleDrawingEnabled by remember { mutableStateOf(false) }
+    var selectingStart by remember { mutableStateOf(false) }
+    var selectingEnd by remember { mutableStateOf(false) }
+    var astarStart by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var astarEnd by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var astarVisualizationState by remember { mutableStateOf(AStarVisualState()) }
+    var isAstarRunning by remember { mutableStateOf(false) }
+    var astarAnimationJob by remember { mutableStateOf<Job?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
     val trainingSamples = remember { mutableStateListOf<TrainingSample>() }
+
     LaunchedEffect(Unit) {
         neuralNetwork.loadIfExists(modelFile)
     }
+
     LaunchedEffect(Unit) {
         if (modelFile.exists()) {
             try {
@@ -117,6 +143,27 @@ fun MainScreen(
             Array(MapConfig.ROWS) { BooleanArray(MapConfig.COLS) { false } }
         }
         mutableStateOf(initialGrid)
+    }
+
+    fun startAStarVisualization() {
+        val start = astarStart ?: return
+        val end = astarEnd ?: return
+
+        if (!mapGrid.value[start.first][start.second] || !mapGrid.value[end.first][end.second]) {
+            return
+        }
+
+        isAstarRunning = true
+        astarAnimationJob = coroutineScope.launch {
+            val pathfinder = AStarPathfinder(mapGrid.value)
+            pathfinder.findPathStepByStep(
+                start.first, start.second,
+                end.first, end.second
+            ) { state ->
+                astarVisualizationState = state
+            }
+            isAstarRunning = false
+        }
     }
 
     val foodPlaces = remember {
@@ -151,7 +198,26 @@ fun MainScreen(
     var orderedLandmarks by remember { mutableStateOf<List<Landmark>>(emptyList()) }
     var landmarkRouteInfo by remember { mutableStateOf("") }
 
+    val fusedLocationClient = remember {
+        LocationServices.getFusedLocationProviderClient(context)
+    }
+
+    var gpsUserCell by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            try {
+                val location = fusedLocationClient.lastLocation.await()
+                location?.let {
+                    gpsUserCell = geoToGrid(it.latitude, it.longitude)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            kotlinx.coroutines.delay(2000)
+        }
+    }
     var manualUserCell by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    val finalUserCell = manualUserCell ?: gpsUserCell
     val ratingsFile = File(context.filesDir, "ratings.txt")
     val ratings = remember {
         mutableStateListOf<PlaceRating>().apply {
@@ -278,6 +344,28 @@ fun MainScreen(
         }
     }
 
+    fun toggleAstarMode() {
+        astarMode = !astarMode
+        if (astarMode) {
+            clusteringMode = false
+            foodRouteMode = false
+            landmarkRouteMode = false
+            editEnabled = false
+            foodEditMode = FoodEditMode.NONE
+            obstacleDrawingEnabled = false
+            selectingStart = false
+            selectingEnd = false
+        } else {
+            astarVisualizationState = AStarVisualState()
+            astarStart = null
+            astarEnd = null
+            isAstarRunning = false
+            astarAnimationJob?.cancel()
+            obstacleDrawingEnabled = false
+            selectingStart = false
+            selectingEnd = false
+        }
+    }
 
     if (isLandscape) {
         Column(
@@ -292,14 +380,15 @@ fun MainScreen(
                     .background(Color.White)
             ) {
                 UniversityMap(
+                    modifier = Modifier.weight(1f),
                     ratings = ratings,
+                    showGrid = gridVisible,
                     editMode = appMode == AppMode.DEVELOPER &&
                             editEnabled &&
                             !clusteringMode &&
                             !foodRouteMode &&
-                            !landmarkRouteMode,
-                    modifier = Modifier.weight(1f),
-                    showGrid = gridVisible,
+                            !landmarkRouteMode &&
+                            !astarMode,
                     isErasing = isErasing,
                     grid = mapGrid.value,
                     foodPlaces = foodPlaces,
@@ -307,13 +396,13 @@ fun MainScreen(
                     selectedLandmarkIds = selectedLandmarkIds,
                     landmarkRoutePath = landmarkRoutePath,
                     orderedLandmarks = orderedLandmarks,
-                    foodEditMode = if (clusteringMode || foodRouteMode || landmarkRouteMode) FoodEditMode.NONE else foodEditMode,
+                    foodEditMode = if (clusteringMode || foodRouteMode || landmarkRouteMode || astarMode) FoodEditMode.NONE else foodEditMode,
                     clusteringMode = clusteringMode,
                     selectedClusterPoints = selectedClusterPoints,
                     clusteredPoints = clusteredPoints,
                     externalPath = geneticFullPath,
                     routeFoodPlaces = geneticRoutePlaces,
-                    userCell = manualUserCell,
+                    userCell = finalUserCell,
                     onGridChanged = { updateTick++ },
                     onAddFoodPlace = { row, col ->
                         if (foodPlaces.none { it.row == row && it.col == col }) {
@@ -333,7 +422,25 @@ fun MainScreen(
                     },
                     onFoodPlaceSelected = { foodPlace ->
                         selectedFoodPlace = foodPlace
-                    }
+                    },
+                    astarMode = astarMode,
+                    obstacleDrawingEnabled = obstacleDrawingEnabled,
+                    astarVisualState = astarVisualizationState,
+                    astarStart = astarStart,
+                    astarEnd = astarEnd,
+                    selectingStart = selectingStart,
+                    selectingEnd = selectingEnd,
+                    onAstarStartSelected = { point ->
+                        astarStart = point
+                        selectingStart = false
+                    },
+                    onAstarEndSelected = { point ->
+                        astarEnd = point
+                        selectingEnd = false
+                    },
+                    onSelectingStartChanged = { selectingStart = it },
+                    onSelectingEndChanged = { selectingEnd = it },
+                    onObstacleToggled = { _, _ -> }
                 )
 
                 Controls(
@@ -355,8 +462,6 @@ fun MainScreen(
                     neuralNetwork = neuralNetwork,
                     onSaveRatings = saveRatings,
                     selectedFoodPlace = selectedFoodPlace,
-                    foodPlaces = foodPlaces,
-                    userCell = manualUserCell,
                     onChangeMode = onChangeMode,
                     modifier = Modifier
                         .fillMaxHeight()
@@ -394,19 +499,20 @@ fun MainScreen(
                     onDishesChange = { dishesText = it },
                     onGridClick = { gridVisible = !gridVisible },
                     onEditClick = {
-                        if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) editEnabled =
-                            !editEnabled
+                        if (!clusteringMode && !foodRouteMode && !landmarkRouteMode && !astarMode) {
+                            editEnabled = !editEnabled
+                        }
                     },
                     isErasing = isErasing,
                     onToggleErasing = { isErasing = !isErasing },
                     onFoodAddClick = {
-                        if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) {
+                        if (!clusteringMode && !foodRouteMode && !landmarkRouteMode && !astarMode) {
                             foodEditMode =
                                 if (foodEditMode == FoodEditMode.ADD) FoodEditMode.NONE else FoodEditMode.ADD
                         }
                     },
                     onFoodDeleteClick = {
-                        if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) {
+                        if (!clusteringMode && !foodRouteMode && !landmarkRouteMode && !astarMode) {
                             foodEditMode =
                                 if (foodEditMode == FoodEditMode.DELETE) FoodEditMode.NONE else FoodEditMode.DELETE
                         }
@@ -420,13 +526,18 @@ fun MainScreen(
                         android.util.Log.d("FOOD_PLACES", foodResult)
                     },
                     onClusteringToggle = {
-                        clusteringMode = !clusteringMode
+                        val turningOn = !clusteringMode
+                        clusteringMode = turningOn
 
-                        if (clusteringMode) {
+                        if (turningOn) {
                             foodEditMode = FoodEditMode.NONE
                             editEnabled = false
                             foodRouteMode = false
                             landmarkRouteMode = false
+
+                        } else {
+                            selectedClusterPoints.clear()
+                            clusteredPoints.clear()
                         }
                     },
                     onRunClustering = {
@@ -443,6 +554,7 @@ fun MainScreen(
                             editEnabled = false
                             foodEditMode = FoodEditMode.NONE
                             landmarkRouteMode = false
+                            astarMode = false
                         } else {
                             geneticRoutePlaces = emptyList()
                             geneticFullPath = emptyList()
@@ -458,10 +570,6 @@ fun MainScreen(
                             return@Controls
                         }
 
-                        if (userRow !in 0 until MapConfig.ROWS || userCol !in 0 until MapConfig.COLS) {
-                            routeInfoText = "Координаты пользователя вне карты"
-                            return@Controls
-                        }
 
                         if (!mapGrid.value[userRow][userCol]) {
                             routeInfoText = "Пользователь стоит на непроходимой клетке"
@@ -528,6 +636,7 @@ fun MainScreen(
                             foodRouteMode = false
                             editEnabled = false
                             foodEditMode = FoodEditMode.NONE
+                            astarMode = false
                         } else {
                             landmarkRoutePath = emptyList()
                             orderedLandmarks = emptyList()
@@ -540,16 +649,18 @@ fun MainScreen(
                         else selectedLandmarkIds.add(id)
                     },
                     onRunLandmarkRoute = {
-                        val userRow = userRowText.toIntOrNull()
-                        val userCol = userColText.toIntOrNull()
+                        val userCell = finalUserCell
 
-                        if (userRow == null || userCol == null) {
-                            landmarkRouteInfo = "Некорректные координаты пользователя"
+                        if (userCell == null) {
+                            routeInfoText = "Не удалось определить позицию пользователя"
                             return@Controls
                         }
 
-                        if (userRow !in 0 until MapConfig.ROWS || userCol !in 0 until MapConfig.COLS) {
-                            landmarkRouteInfo = "Координаты пользователя вне карты"
+                        val (userRow, userCol) = userCell
+
+
+                        if (userRow == null || userCol == null) {
+                            landmarkRouteInfo = "Некорректные координаты пользователя"
                             return@Controls
                         }
 
@@ -590,7 +701,45 @@ fun MainScreen(
                         orderedLandmarks = emptyList()
                         landmarkRouteInfo = ""
                     },
-                    isLandscape = isLandscape
+                    isLandscape = isLandscape,
+                    astarMode = astarMode,
+                    obstacleDrawingEnabled = obstacleDrawingEnabled,
+                    astarStart = astarStart,
+                    astarEnd = astarEnd,
+                    selectingStart = selectingStart,
+                    selectingEnd = selectingEnd,
+                    isAstarRunning = isAstarRunning,
+                    astarVisualizationState = astarVisualizationState,
+                    onAstarModeToggle = { toggleAstarMode() },
+                    onObstacleDrawingToggle = {
+                        obstacleDrawingEnabled = !obstacleDrawingEnabled
+                        selectingStart = false
+                        selectingEnd = false
+                    },
+                    onSelectStartClick = {
+                        selectingStart = true
+                        selectingEnd = false
+                        obstacleDrawingEnabled = false
+                    },
+                    onSelectEndClick = {
+                        selectingEnd = true
+                        selectingStart = false
+                        obstacleDrawingEnabled = false
+                    },
+                    onRunAstar = { startAStarVisualization() },
+                    onStopAstar = {
+                        astarAnimationJob?.cancel()
+                        isAstarRunning = false
+                    },
+                    onClearAstar = {
+                        astarVisualizationState = AStarVisualState()
+                        astarStart = null
+                        astarEnd = null
+                        isAstarRunning = false
+                        astarAnimationJob?.cancel()
+                        selectingStart = false
+                        selectingEnd = false
+                    }
                 )
             }
         }
@@ -605,11 +754,13 @@ fun MainScreen(
 
             UniversityMap(
                 ratings = ratings,
+                astarMode = astarMode,
                 editMode = appMode == AppMode.DEVELOPER &&
                         editEnabled &&
                         !clusteringMode &&
                         !foodRouteMode &&
-                        !landmarkRouteMode,
+                        !landmarkRouteMode &&
+                        !astarMode,
                 modifier = Modifier.weight(5f),
                 showGrid = gridVisible,
                 isErasing = isErasing,
@@ -619,7 +770,7 @@ fun MainScreen(
                 selectedLandmarkIds = selectedLandmarkIds,
                 landmarkRoutePath = landmarkRoutePath,
                 orderedLandmarks = orderedLandmarks,
-                foodEditMode = if (clusteringMode || foodRouteMode || landmarkRouteMode) FoodEditMode.NONE else foodEditMode,
+                foodEditMode = if (clusteringMode || foodRouteMode || landmarkRouteMode || astarMode) FoodEditMode.NONE else foodEditMode,
                 clusteringMode = clusteringMode,
                 selectedClusterPoints = selectedClusterPoints,
                 clusteredPoints = clusteredPoints,
@@ -645,7 +796,24 @@ fun MainScreen(
                 },
                 onFoodPlaceSelected = { foodPlace ->
                     selectedFoodPlace = foodPlace
-                }
+                },
+                obstacleDrawingEnabled = obstacleDrawingEnabled,
+                astarVisualState = astarVisualizationState,
+                astarStart = astarStart,
+                astarEnd = astarEnd,
+                selectingStart = selectingStart,
+                selectingEnd = selectingEnd,
+                onAstarStartSelected = { point ->
+                    astarStart = point
+                    selectingStart = false
+                },
+                onAstarEndSelected = { point ->
+                    astarEnd = point
+                    selectingEnd = false
+                },
+                onSelectingStartChanged = { selectingStart = it },
+                onSelectingEndChanged = { selectingEnd = it },
+                onObstacleToggled = { _, _ -> }
             )
 
             Controls(
@@ -667,8 +835,6 @@ fun MainScreen(
                 neuralNetwork = neuralNetwork,
                 onSaveRatings = saveRatings,
                 selectedFoodPlace = selectedFoodPlace,
-                foodPlaces = foodPlaces,
-                userCell = manualUserCell,
                 onChangeMode = onChangeMode,
                 modifier = Modifier.weight(2.8f),
                 showGrid = gridVisible,
@@ -704,19 +870,20 @@ fun MainScreen(
                 onDishesChange = { dishesText = it },
                 onGridClick = { gridVisible = !gridVisible },
                 onEditClick = {
-                    if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) editEnabled =
-                        !editEnabled
+                    if (!clusteringMode && !foodRouteMode && !landmarkRouteMode && !astarMode) {
+                        editEnabled = !editEnabled
+                    }
                 },
                 isErasing = isErasing,
                 onToggleErasing = { isErasing = !isErasing },
                 onFoodAddClick = {
-                    if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) {
+                    if (!clusteringMode && !foodRouteMode && !landmarkRouteMode && !astarMode) {
                         foodEditMode =
                             if (foodEditMode == FoodEditMode.ADD) FoodEditMode.NONE else FoodEditMode.ADD
                     }
                 },
                 onFoodDeleteClick = {
-                    if (!clusteringMode && !foodRouteMode && !landmarkRouteMode) {
+                    if (!clusteringMode && !foodRouteMode && !landmarkRouteMode && !astarMode) {
                         foodEditMode =
                             if (foodEditMode == FoodEditMode.DELETE) FoodEditMode.NONE else FoodEditMode.DELETE
                     }
@@ -730,18 +897,16 @@ fun MainScreen(
                     android.util.Log.d("FOOD_PLACES", foodResult)
                 },
                 onClusteringToggle = {
-                    val turningOn = !clusteringMode
-                    clusteringMode = turningOn
-
-                    if (turningOn) {
+                    clusteringMode = !clusteringMode
+                    if (!clusteringMode) {
+                        selectedClusterPoints.clear()
+                        clusteredPoints.clear()
+                    } else {
                         foodEditMode = FoodEditMode.NONE
                         editEnabled = false
                         foodRouteMode = false
                         landmarkRouteMode = false
-
-                    } else {
-                        selectedClusterPoints.clear()
-                        clusteredPoints.clear()
+                        astarMode = false
                     }
                 },
                 onRunClustering = {
@@ -758,6 +923,7 @@ fun MainScreen(
                         editEnabled = false
                         foodEditMode = FoodEditMode.NONE
                         landmarkRouteMode = false
+                        astarMode = false
                     } else {
                         geneticRoutePlaces = emptyList()
                         geneticFullPath = emptyList()
@@ -765,16 +931,17 @@ fun MainScreen(
                     }
                 },
                 onRunFoodRoute = {
-                    val userRow = userRowText.toIntOrNull()
-                    val userCol = userColText.toIntOrNull()
+                    val userCell = finalUserCell
 
-                    if (userRow == null || userCol == null) {
-                        routeInfoText = "Некорректные координаты пользователя"
+                    if (userCell == null) {
+                        routeInfoText = "Не удалось определить позицию пользователя"
                         return@Controls
                     }
 
-                    if (userRow !in 0 until MapConfig.ROWS || userCol !in 0 until MapConfig.COLS) {
-                        routeInfoText = "Координаты пользователя вне карты"
+                    val (userRow, userCol) = userCell
+
+                    if (userRow == null || userCol == null) {
+                        routeInfoText = "Некорректные координаты пользователя"
                         return@Controls
                     }
 
@@ -843,6 +1010,7 @@ fun MainScreen(
                         foodRouteMode = false
                         editEnabled = false
                         foodEditMode = FoodEditMode.NONE
+                        astarMode = false
                     } else {
                         landmarkRoutePath = emptyList()
                         orderedLandmarks = emptyList()
@@ -855,18 +1023,20 @@ fun MainScreen(
                     else selectedLandmarkIds.add(id)
                 },
                 onRunLandmarkRoute = {
-                    val userRow = userRowText.toIntOrNull()
-                    val userCol = userColText.toIntOrNull()
+                    val userCell = finalUserCell
+
+                    if (userCell == null) {
+                        routeInfoText = "Не удалось определить позицию пользователя"
+                        return@Controls
+                    }
+
+                    val (userRow, userCol) = userCell
 
                     if (userRow == null || userCol == null) {
                         landmarkRouteInfo = "Некорректные координаты пользователя"
                         return@Controls
                     }
 
-                    if (userRow !in 0 until MapConfig.ROWS || userCol !in 0 until MapConfig.COLS) {
-                        landmarkRouteInfo = "Координаты пользователя вне карты"
-                        return@Controls
-                    }
 
                     if (!mapGrid.value[userRow][userCol]) {
                         landmarkRouteInfo = "Пользователь стоит на непроходимой клетке"
@@ -905,7 +1075,45 @@ fun MainScreen(
                     orderedLandmarks = emptyList()
                     landmarkRouteInfo = ""
                 },
-                isLandscape = isLandscape
+                isLandscape = isLandscape,
+                astarMode = astarMode,
+                obstacleDrawingEnabled = obstacleDrawingEnabled,
+                astarStart = astarStart,
+                astarEnd = astarEnd,
+                selectingStart = selectingStart,
+                selectingEnd = selectingEnd,
+                isAstarRunning = isAstarRunning,
+                astarVisualizationState = astarVisualizationState,
+                onAstarModeToggle = { toggleAstarMode() },
+                onObstacleDrawingToggle = {
+                    obstacleDrawingEnabled = !obstacleDrawingEnabled
+                    selectingStart = false
+                    selectingEnd = false
+                },
+                onSelectStartClick = {
+                    selectingStart = true
+                    selectingEnd = false
+                    obstacleDrawingEnabled = false
+                },
+                onSelectEndClick = {
+                    selectingEnd = true
+                    selectingStart = false
+                    obstacleDrawingEnabled = false
+                },
+                onRunAstar = { startAStarVisualization() },
+                onStopAstar = {
+                    astarAnimationJob?.cancel()
+                    isAstarRunning = false
+                },
+                onClearAstar = {
+                    astarVisualizationState = AStarVisualState()
+                    astarStart = null
+                    astarEnd = null
+                    isAstarRunning = false
+                    astarAnimationJob?.cancel()
+                    selectingStart = false
+                    selectingEnd = false
+                }
             )
         }
     }
