@@ -1,40 +1,67 @@
 package com.example.universitymapproj
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.os.Bundle
+import android.os.Looper
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import com.example.universitymapproj.LocalLunchDecisionTreeState
-import com.example.universitymapproj.LunchDecisionTreeState
+import com.example.universitymapproj.NeuralNetwork.NeuralNetwork
+import com.google.android.gms.location.*
 import java.io.File
 
 class MainActivity : ComponentActivity() {
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
 
+        // Инициализация клиента GPS
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+
         splashScreen.setKeepOnScreenCondition { false }
-
-        File(filesDir, "model.dat").delete()
-
         enableEdgeToEdge()
 
         setContent {
+            // Состояния для дерева решений и режима приложения
             val lunchState = remember { LunchDecisionTreeState() }
+            var appModeString by rememberSaveable { mutableStateOf<String?>(null) }
+            val appMode = appModeString?.let { AppMode.valueOf(it) }
 
-            CompositionLocalProvider(
-                LocalLunchDecisionTreeState provides lunchState
-            ) {
-                var appModeString by rememberSaveable { mutableStateOf<String?>(null) }
-                val appMode: AppMode? = appModeString?.let { AppMode.valueOf(it) }
+            // Состояние для хранения GPS-позиции в координатах сетки
+            var gpsUserCell by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
+            // Лаунчер для запроса разрешений GPS
+            val launcher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestMultiplePermissions()
+            ) { permissions ->
+                val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
+                val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+
+                if (fineGranted || coarseGranted) {
+                    startLocationUpdates { lat: Double, lon: Double ->
+                        // Преобразуем координаты GPS в клетки сетки (ROWS/COLS)
+                        gpsUserCell = MapConfig.gpsToGrid(lat, lon)
+                    }
+                }
+            }
+
+            // Запрашиваем разрешения один раз при старте
+            LaunchedEffect(Unit) {
+                launcher.launch(arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ))
+            }
+
+            CompositionLocalProvider(LocalLunchDecisionTreeState provides lunchState) {
                 if (appMode == null) {
                     ModeSelectionScreen { selected ->
                         appModeString = selected.name
@@ -42,10 +69,33 @@ class MainActivity : ComponentActivity() {
                 } else {
                     MainScreen(
                         appMode = appMode,
-                        onChangeMode = { appModeString = null }
+                        onChangeMode = { appModeString = null },
+                        // Передаем GPS-координаты в MainScreen
+                        // (Убедитесь, что вы добавили этот параметр в функцию MainScreen)
+                        externalUserCell = gpsUserCell
                     )
                 }
             }
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startLocationUpdates(onLocationReceived: (Double, Double) -> Unit) {
+        val locationRequest = LocationRequest.Builder(
+            Priority.PRIORITY_HIGH_ACCURACY,
+            5000 // Интервал обновления 5 секунд
+        ).build()
+
+        fusedLocationClient.requestLocationUpdates(
+            locationRequest,
+            object : LocationCallback() {
+                override fun onLocationResult(result: LocationResult) {
+                    result.lastLocation?.let {
+                        onLocationReceived(it.latitude, it.longitude)
+                    }
+                }
+            },
+            Looper.getMainLooper()
+        )
     }
 }

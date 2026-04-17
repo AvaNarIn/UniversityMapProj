@@ -69,13 +69,15 @@ import java.io.File
 @Composable
 fun MainScreen(
     appMode: AppMode,
-    onChangeMode: () -> Unit
+    onChangeMode: () -> Unit,
+    externalUserCell: Pair<Int, Int>? = null
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     val coroutineScope = rememberCoroutineScope()
+
 
     var clusteringJob by remember { mutableStateOf<Job?>(null) }
     var foodRouteJob by remember { mutableStateOf<Job?>(null) }
@@ -230,7 +232,7 @@ fun MainScreen(
 
     var manualUserCell by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     val finalUserCell = manualUserCell ?: gpsUserCell
-
+    val effectiveUserCell = externalUserCell ?: manualUserCell
     val ratingsFile = File(context.filesDir, "ratings.txt")
     val ratings = remember {
         mutableStateListOf<PlaceRating>().apply { addAll(loadRatingsFromFile(ratingsFile)) }
@@ -479,7 +481,7 @@ fun MainScreen(
                     selectedFoodPlace = selectedFoodPlace,
 
                     foodPlaces = foodPlaces,
-                    userCell = finalUserCell,
+                    userCell = effectiveUserCell,
 
                     onChangeMode = onChangeMode,
                     modifier = Modifier
@@ -889,7 +891,7 @@ fun MainScreen(
                 onSaveRatings = saveRatings,
                 selectedFoodPlace = selectedFoodPlace,
                 foodPlaces = foodPlaces,
-                userCell = finalUserCell,
+                userCell = effectiveUserCell,
 
                 onChangeMode = onChangeMode,
                 modifier = Modifier.weight(2.8f),

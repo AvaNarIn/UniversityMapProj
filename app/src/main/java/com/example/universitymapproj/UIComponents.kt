@@ -400,79 +400,7 @@ fun Controls(
                 }
             }
 
-            ControlCard {
-                MainButton(
-                    if (astarMode) "A*: ВЫКЛ" else "A*: визуализация",
-                    onAstarModeToggle,
-                    isLandscape = isLandscape
-                )
 
-                AnimatedVisibility(
-                    visible = astarMode,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
-                ) {
-                    Column {
-                        Text(
-                            buildString {
-                                append("Start: ${astarStart ?: "-"}\n")
-                                append("End: ${astarEnd ?: "-"}\n")
-                                append("Open: ${astarVisualizationState.openSet.size}, Closed: ${astarVisualizationState.closedSet.size}\n")
-                                append(
-                                    when {
-                                        isAstarRunning -> "Статус: идёт…"
-                                        astarVisualizationState.isNoPath -> "Статус: пути нет"
-                                        astarVisualizationState.isComplete -> "Статус: готово"
-                                        else -> "Статус: ожидание"
-                                    }
-                                )
-                            },
-                            fontSize = 12.sp
-                        )
-
-                        MainButton(
-                            if (obstacleDrawingEnabled) "Препятствия: ВКЛ" else "Препятствия",
-                            onObstacleDrawingToggle,
-                            isLandscape = isLandscape
-                        )
-
-                        MainButton(
-                            if (selectingStart) "Выбор START: ВКЛ" else "Выбрать START",
-                            onSelectStartClick,
-                            isLandscape = isLandscape,
-                            enabled = !isAstarRunning
-                        )
-
-                        MainButton(
-                            if (selectingEnd) "Выбор END: ВКЛ" else "Выбрать END",
-                            onSelectEndClick,
-                            isLandscape = isLandscape,
-                            enabled = !isAstarRunning
-                        )
-
-                        MainButton(
-                            "Запустить",
-                            onRunAstar,
-                            isLandscape = isLandscape,
-                            enabled = !isAstarRunning && astarStart != null && astarEnd != null
-                        )
-
-                        MainButton(
-                            "Остановить",
-                            onStopAstar,
-                            isLandscape = isLandscape,
-                            enabled = isAstarRunning
-                        )
-
-                        MainButton(
-                            "Очистить",
-                            onClearAstar,
-                            isLandscape = isLandscape,
-                            enabled = !isAstarRunning
-                        )
-                    }
-                }
-            }
         }
 
         Card(
@@ -573,7 +501,79 @@ fun Controls(
                 }
             }
         }
+        ControlCard {
+            MainButton(
+                if (astarMode) "A*: ВЫКЛ" else "A*: визуализация",
+                onAstarModeToggle,
+                isLandscape = isLandscape
+            )
 
+            AnimatedVisibility(
+                visible = astarMode,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column {
+                    Text(
+                        buildString {
+                            append("Start: ${astarStart ?: "-"}\n")
+                            append("End: ${astarEnd ?: "-"}\n")
+                            append("Open: ${astarVisualizationState.openSet.size}, Closed: ${astarVisualizationState.closedSet.size}\n")
+                            append(
+                                when {
+                                    isAstarRunning -> "Статус: идёт…"
+                                    astarVisualizationState.isNoPath -> "Статус: пути нет"
+                                    astarVisualizationState.isComplete -> "Статус: готово"
+                                    else -> "Статус: ожидание"
+                                }
+                            )
+                        },
+                        fontSize = 12.sp
+                    )
+
+                    MainButton(
+                        if (obstacleDrawingEnabled) "Препятствия: ВКЛ" else "Препятствия",
+                        onObstacleDrawingToggle,
+                        isLandscape = isLandscape
+                    )
+
+                    MainButton(
+                        if (selectingStart) "Выбор START: ВКЛ" else "Выбрать START",
+                        onSelectStartClick,
+                        isLandscape = isLandscape,
+                        enabled = !isAstarRunning
+                    )
+
+                    MainButton(
+                        if (selectingEnd) "Выбор END: ВКЛ" else "Выбрать END",
+                        onSelectEndClick,
+                        isLandscape = isLandscape,
+                        enabled = !isAstarRunning
+                    )
+
+                    MainButton(
+                        "Запустить",
+                        onRunAstar,
+                        isLandscape = isLandscape,
+                        enabled = !isAstarRunning && astarStart != null && astarEnd != null
+                    )
+
+                    MainButton(
+                        "Остановить",
+                        onStopAstar,
+                        isLandscape = isLandscape,
+                        enabled = isAstarRunning
+                    )
+
+                    MainButton(
+                        "Очистить",
+                        onClearAstar,
+                        isLandscape = isLandscape,
+                        enabled = !isAstarRunning
+                    )
+                }
+            }
+        }
         ControlCard {
             MainButton(
                 if (clusteringMode) "Вернуться к карте" else "Кластеризация",
