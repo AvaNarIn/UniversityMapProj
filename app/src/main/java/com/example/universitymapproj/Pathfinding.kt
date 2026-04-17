@@ -234,3 +234,33 @@ suspend fun AStarPathfinder.findPathAsync(
 ): List<Pair<Int, Int>> = withContext(Dispatchers.Default) {
     findPath(sr, sc, er, ec)
 }
+
+
+fun findNearestPassable(r: Int, c: Int, grid: Array<BooleanArray>): Pair<Int, Int> {
+    val rows = grid.size
+    val cols = grid[0].size
+    if (r in 0 until rows && c in 0 until cols && grid[r][c]) return r to c
+
+    val queue: java.util.Queue<Pair<Int, Int>> = java.util.LinkedList()
+    val visited = mutableSetOf<Pair<Int, Int>>()
+    queue.add(r to c)
+    visited.add(r to c)
+
+    val directions = listOf(0 to 1, 0 to -1, 1 to 0, -1 to 0, 1 to 1, 1 to -1, -1 to 1, -1 to -1)
+
+    while (queue.isNotEmpty()) {
+        val (currR, currC) = queue.poll() ?: continue
+        for ((dr, dc) in directions) {
+            val nr = currR + dr
+            val nc = currC + dc
+            if (nr in 0 until rows && nc in 0 until cols && nr to nc !in visited) {
+                if (grid[nr][nc]) return nr to nc
+                visited.add(nr to nc)
+                queue.add(nr to nc)
+            }
+        }
+        if (visited.size > 2000) break
+    }
+    return r to c
+}
+

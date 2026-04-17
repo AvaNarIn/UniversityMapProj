@@ -23,22 +23,21 @@ class MainActivity : ComponentActivity() {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
 
-        // Инициализация клиента GPS
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
         splashScreen.setKeepOnScreenCondition { false }
         enableEdgeToEdge()
 
         setContent {
-            // Состояния для дерева решений и режима приложения
+
             val lunchState = remember { LunchDecisionTreeState() }
             var appModeString by rememberSaveable { mutableStateOf<String?>(null) }
             val appMode = appModeString?.let { AppMode.valueOf(it) }
 
-            // Состояние для хранения GPS-позиции в координатах сетки
+
             var gpsUserCell by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
-            // Лаунчер для запроса разрешений GPS
+
             val launcher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestMultiplePermissions()
             ) { permissions ->
@@ -47,13 +46,13 @@ class MainActivity : ComponentActivity() {
 
                 if (fineGranted || coarseGranted) {
                     startLocationUpdates { lat: Double, lon: Double ->
-                        // Преобразуем координаты GPS в клетки сетки (ROWS/COLS)
+
                         gpsUserCell = MapConfig.gpsToGrid(lat, lon)
                     }
                 }
             }
 
-            // Запрашиваем разрешения один раз при старте
+
             LaunchedEffect(Unit) {
                 launcher.launch(arrayOf(
                     Manifest.permission.ACCESS_FINE_LOCATION,
@@ -70,8 +69,6 @@ class MainActivity : ComponentActivity() {
                     MainScreen(
                         appMode = appMode,
                         onChangeMode = { appModeString = null },
-                        // Передаем GPS-координаты в MainScreen
-                        // (Убедитесь, что вы добавили этот параметр в функцию MainScreen)
                         externalUserCell = gpsUserCell
                     )
                 }
@@ -83,7 +80,7 @@ class MainActivity : ComponentActivity() {
     private fun startLocationUpdates(onLocationReceived: (Double, Double) -> Unit) {
         val locationRequest = LocationRequest.Builder(
             Priority.PRIORITY_HIGH_ACCURACY,
-            5000 // Интервал обновления 5 секунд
+            5000
         ).build()
 
         fusedLocationClient.requestLocationUpdates(

@@ -14,12 +14,16 @@ object MapConfig {
     const val REF_LON = 84.94750
     const val REF_ROW = 104
     const val REF_COL = 81
-    const val LAT_SCALE = -18823.5
-    const val LON_SCALE = 9000.0
+    const val LAT_SCALE = 34400.0
+    const val LON_SCALE = 7600.0
+
+    const val ROW_CORRECTION = 0
 
     fun gpsToGrid(lat: Double, lon: Double): Pair<Int, Int> {
-        val row = REF_ROW - (lat - REF_LAT) * LAT_SCALE
+        val row = (REF_ROW + ROW_CORRECTION) + (lat - REF_LAT) * LAT_SCALE
         val col = REF_COL + (lon - REF_LON) * LON_SCALE
+        val finalRow = (REF_ROW + ROW_CORRECTION) + (lat - REF_LAT) * LAT_SCALE
+        Log.d("MAP_CALC", "Lat: $lat -> Row: $finalRow (Correction: $ROW_CORRECTION)")
         return row.toInt().coerceIn(0, ROWS - 1) to col.toInt().coerceIn(0, COLS - 1)
     }
     fun readFromAssets(context: Context, fileName: String): String {

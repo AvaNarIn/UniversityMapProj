@@ -601,10 +601,6 @@ fun MainScreen(
                             return@Controls
                         }
 
-                        if (!mapGrid.value[userRow][userCol]) {
-                            routeInfoText = "Пользователь стоит на непроходимой клетке"
-                            return@Controls
-                        }
 
                         manualUserCell = userRow to userCol
 
@@ -1009,11 +1005,6 @@ fun MainScreen(
                     }
 
                     val (userRow, userCol) = userCellNow
-
-                    if (!mapGrid.value[userRow][userCol]) {
-                        routeInfoText = "Пользователь стоит на непроходимой клетке"
-                        return@Controls
-                    }
 
                     manualUserCell = userRow to userCol
 
