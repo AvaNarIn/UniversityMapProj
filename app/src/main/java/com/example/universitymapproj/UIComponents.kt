@@ -625,6 +625,9 @@ fun Controls(
             }
         }
 
+        MainButton("Сменить режим", onChangeMode, isLandscape = isLandscape)
+        Spacer(modifier = Modifier.height(12.dp))
+
         // Дерево решений
         LunchDecisionTreeCard(
             isDeveloper = isDev,
@@ -633,8 +636,6 @@ fun Controls(
             modifier = Modifier.fillMaxWidth()
         )
 
-        MainButton("Сменить режим", onChangeMode, isLandscape = isLandscape)
-        Spacer(modifier = Modifier.height(12.dp))
     }
 }
 

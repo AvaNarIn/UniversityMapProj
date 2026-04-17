@@ -730,13 +730,18 @@ fun MainScreen(
                     android.util.Log.d("FOOD_PLACES", foodResult)
                 },
                 onClusteringToggle = {
-                    clusteringMode = !clusteringMode
+                    val turningOn = !clusteringMode
+                    clusteringMode = turningOn
 
-                    if (clusteringMode) {
+                    if (turningOn) {
                         foodEditMode = FoodEditMode.NONE
                         editEnabled = false
                         foodRouteMode = false
                         landmarkRouteMode = false
+
+                    } else {
+                        selectedClusterPoints.clear()
+                        clusteredPoints.clear()
                     }
                 },
                 onRunClustering = {
