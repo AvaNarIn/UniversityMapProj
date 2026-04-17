@@ -82,50 +82,6 @@ fun preprocessBitmap(bitmap: Bitmap): FloatArray {
 }
 
 @Composable
-fun ModeSelectionScreen(onModeSelected: (AppMode) -> Unit) {
-    Box(
-        modifier = Modifier.fillMaxSize()
-    ) {
-
-        Image(
-            painter = painterResource(id = R.drawable.splash_screen),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                "Выберите режим",
-                fontSize = 22.sp,
-                color = Color.White,
-                modifier = Modifier.padding(bottom = 20.dp)
-            )
-
-            MainButton(
-                "Пользователь",
-                onClick = {onModeSelected(AppMode.USER)}
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            MainButton(
-                "Разработчик",
-                onClick = { onModeSelected(AppMode.DEVELOPER) }
-
-            )
-        }
-    }
-}
-
-
-@Composable
 fun MainScreen(
     appMode: AppMode,
     onChangeMode: () -> Unit
