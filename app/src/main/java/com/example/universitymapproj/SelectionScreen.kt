@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -39,21 +40,21 @@ fun ModeSelectionScreen(onModeSelected: (AppMode) -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                "Выберите режим",
+                stringResource(R.string.mode_choose_title),
                 fontSize = 22.sp,
                 color = Color.White,
                 modifier = Modifier.padding(bottom = 20.dp)
             )
 
             MainButton(
-                "Пользователь",
+                stringResource(R.string.mode_user),
                 onClick = {onModeSelected(AppMode.USER)}
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
             MainButton(
-                "Разработчик",
+                stringResource(R.string.mode_developer),
                 onClick = { onModeSelected(AppMode.DEVELOPER) }
 
             )

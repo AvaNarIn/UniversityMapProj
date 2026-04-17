@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -100,6 +101,7 @@ fun MainScreen(
     var pendingNewFoodPlace by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var showNewFoodDialog by remember { mutableStateOf(false) }
 
+    // Просто хардкодные значения по умолчанию, они будут заменены при сохранении
     var tempTitle by remember { mutableStateOf("Новый общепит") }
     var tempDescription by remember { mutableStateOf("Описание") }
     var tempWorkingHours by remember { mutableStateOf("08:00-18:00") }
@@ -132,7 +134,7 @@ fun MainScreen(
         if (modelFile.exists()) {
             try {
                 neuralNetwork.loadModel(modelFile)
-                trainingProgress = "Модель загружена из файла"
+                trainingProgress = "Модель загружена"
             } catch (e: Exception) {
                 trainingProgress = "Ошибка загрузки модели"
             }
@@ -257,7 +259,7 @@ fun MainScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "Добавление нового общепита",
+                        text = stringResource(R.string.dialog_add_food_title),
                         fontSize = 20.sp,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
@@ -265,7 +267,7 @@ fun MainScreen(
                     OutlinedTextField(
                         value = tempTitle,
                         onValueChange = { tempTitle = it },
-                        label = { Text("Название") },
+                        label = { Text(stringResource(R.string.field_title)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -273,7 +275,7 @@ fun MainScreen(
                     OutlinedTextField(
                         value = tempDescription,
                         onValueChange = { tempDescription = it },
-                        label = { Text("Описание") },
+                        label = { Text(stringResource(R.string.field_description)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -281,7 +283,7 @@ fun MainScreen(
                     OutlinedTextField(
                         value = tempWorkingHours,
                         onValueChange = { tempWorkingHours = it },
-                        label = { Text("Часы работы") },
+                        label = { Text(stringResource(R.string.field_working_hours)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -289,7 +291,7 @@ fun MainScreen(
                     OutlinedTextField(
                         value = tempType,
                         onValueChange = { tempType = it },
-                        label = { Text("Тип заведения") },
+                        label = { Text(stringResource(R.string.field_place_type)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -297,7 +299,7 @@ fun MainScreen(
                     OutlinedTextField(
                         value = tempDishesText,
                         onValueChange = { tempDishesText = it },
-                        label = { Text("Блюда (через запятую)") },
+                        label = { Text(stringResource(R.string.field_dishes_csv)) },
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -312,7 +314,7 @@ fun MainScreen(
                                 showNewFoodDialog = false
                                 pendingNewFoodPlace = null
                             }
-                        ) { Text("Отмена") }
+                        ) { Text(stringResource(R.string.btn_cancel)) }
 
                         Spacer(modifier = Modifier.width(8.dp))
 
@@ -346,7 +348,7 @@ fun MainScreen(
                                 showNewFoodDialog = false
                                 pendingNewFoodPlace = null
                             }
-                        ) { Text("Добавить") }
+                        ) { Text(stringResource(R.string.btn_add)) }
                     }
                 }
             }
@@ -383,7 +385,6 @@ fun MainScreen(
             selectingEnd = false
         }
     }
-
 
     if (isLandscape) {
         Column(
@@ -666,8 +667,7 @@ fun MainScreen(
                             geneticFullPath = fullPath
 
                             val routeTitles = bestRoute.joinToString(" -> ") { it.title }
-                            routeInfoText =
-                                "Найдено: ${bestRoute.size} точек, длина пути: ${fullPath.size} клеток\n$routeTitles"
+                            routeInfoText = "Маршрут построен: $routeTitles\nДлина: ${fullPath.size} клеток"
                         }
                     },
                     onClearFoodRoute = {
@@ -747,8 +747,7 @@ fun MainScreen(
 
                             orderedLandmarks = ordered
                             landmarkRoutePath = fullPath
-                            landmarkRouteInfo =
-                                "Маршрут построен: ${ordered.joinToString(" -> ") { it.title }}\nДлина: ${fullPath.size} клеток"
+                            landmarkRouteInfo = "Маршрут построен: ${ordered.joinToString(" -> ") { it.title }}\nДлина: ${fullPath.size} клеток"
                         }
                     },
                     onClearLandmarkRoute = {
@@ -1077,8 +1076,7 @@ fun MainScreen(
                         geneticFullPath = fullPath
 
                         val routeTitles = bestRoute.joinToString(" -> ") { it.title }
-                        routeInfoText =
-                            "Найдено: ${bestRoute.size} точек, длина пути: ${fullPath.size} клеток\n$routeTitles"
+                        routeInfoText = "Маршрут построен: $routeTitles\nДлина: ${fullPath.size} клеток"
                     }
                 },
                 onClearFoodRoute = {
@@ -1158,8 +1156,7 @@ fun MainScreen(
 
                         orderedLandmarks = ordered
                         landmarkRoutePath = fullPath
-                        landmarkRouteInfo =
-                            "Маршрут построен: ${ordered.joinToString(" -> ") { it.title }}\nДлина: ${fullPath.size} клеток"
+                        landmarkRouteInfo = "Маршрут построен: ${ordered.joinToString(" -> ") { it.title }}\nДлина: ${fullPath.size} клеток"
                     }
                 },
                 onClearLandmarkRoute = {
