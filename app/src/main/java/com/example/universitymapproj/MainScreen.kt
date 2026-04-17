@@ -355,6 +355,8 @@ fun MainScreen(
                     neuralNetwork = neuralNetwork,
                     onSaveRatings = saveRatings,
                     selectedFoodPlace = selectedFoodPlace,
+                    foodPlaces = foodPlaces,
+                    userCell = manualUserCell,
                     onChangeMode = onChangeMode,
                     modifier = Modifier
                         .fillMaxHeight()
@@ -419,10 +421,8 @@ fun MainScreen(
                     },
                     onClusteringToggle = {
                         clusteringMode = !clusteringMode
-                        if (!clusteringMode) {
-                            selectedClusterPoints.clear()
-                            clusteredPoints.clear()
-                        } else {
+
+                        if (clusteringMode) {
                             foodEditMode = FoodEditMode.NONE
                             editEnabled = false
                             foodRouteMode = false
@@ -667,6 +667,8 @@ fun MainScreen(
                 neuralNetwork = neuralNetwork,
                 onSaveRatings = saveRatings,
                 selectedFoodPlace = selectedFoodPlace,
+                foodPlaces = foodPlaces,
+                userCell = manualUserCell,
                 onChangeMode = onChangeMode,
                 modifier = Modifier.weight(2.8f),
                 showGrid = gridVisible,
@@ -729,10 +731,8 @@ fun MainScreen(
                 },
                 onClusteringToggle = {
                     clusteringMode = !clusteringMode
-                    if (!clusteringMode) {
-                        selectedClusterPoints.clear()
-                        clusteredPoints.clear()
-                    } else {
+
+                    if (clusteringMode) {
                         foodEditMode = FoodEditMode.NONE
                         editEnabled = false
                         foodRouteMode = false

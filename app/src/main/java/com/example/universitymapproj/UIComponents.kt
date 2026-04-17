@@ -36,12 +36,106 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.example.universitymapproj.models.*
 import com.example.universitymapproj.pathfinding.AStarPathfinder
 import com.example.universitymapproj.NeuralNetwork.*
+import com.example.universitymapproj.LunchDecisionTreeCard
 import java.io.File
 
-
-enum class AppMode{
+enum class AppMode {
     USER,
     DEVELOPER
+}
+
+
+private val CLUSTER_COLORS = listOf(
+    Color(0xFFE57373),
+    Color(0xFF64B5F6),
+    Color(0xFF81C784),
+    Color(0xFFFFB74D),
+    Color(0xFFBA68C8),
+    Color(0xFF4DB6AC),
+    Color(0xFFAED581),
+    Color(0xFFFF8A65)
+)
+
+private fun computeClusterCentroids(clustered: List<ClusteredPoint>): List<Pair<Double, Double>> {
+    if (clustered.isEmpty()) return emptyList()
+
+    return clustered
+        .groupBy { it.clusterIndex }
+        .toSortedMap()
+        .values
+        .map { pts ->
+            val avgRow = pts.map { it.row.toDouble() }.average()
+            val avgCol = pts.map { it.col.toDouble() }.average()
+            avgRow to avgCol
+        }
+}
+
+private fun buildClusterZoneIndex(centroids: List<Pair<Double, Double>>): Array<IntArray> {
+    val rows = MapConfig.ROWS
+    val cols = MapConfig.COLS
+
+    return Array(rows) { r ->
+        IntArray(cols) { c ->
+            var best = 0
+            var bestD = Double.MAX_VALUE
+
+            for (i in centroids.indices) {
+                val dr = r - centroids[i].first
+                val dc = c - centroids[i].second
+                val d2 = dr * dr + dc * dc
+                if (d2 < bestD) {
+                    bestD = d2
+                    best = i
+                }
+            }
+            best
+        }
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawClusterZones(
+    zoneIndex: Array<IntArray>,
+    cellW: Float,
+    cellH: Float,
+    alphaFill: Float = 0.22f,
+    drawBorders: Boolean = true
+) {
+    for (r in 0 until MapConfig.ROWS) {
+        for (c in 0 until MapConfig.COLS) {
+            val ci = zoneIndex[r][c]
+            val color = CLUSTER_COLORS[ci % CLUSTER_COLORS.size].copy(alpha = alphaFill)
+            drawRect(
+                color = color,
+                topLeft = Offset(c * cellW, r * cellH),
+                size = Size(cellW, cellH)
+            )
+        }
+    }
+
+    if (!drawBorders) return
+
+    val borderColor = Color.Black.copy(alpha = 0.25f)
+    val stroke = 1f
+
+    for (r in 0 until MapConfig.ROWS) {
+        for (c in 0 until MapConfig.COLS) {
+            val here = zoneIndex[r][c]
+
+            if (c + 1 < MapConfig.COLS && zoneIndex[r][c + 1] != here) {
+                val x = (c + 1) * cellW
+                val y0 = r * cellH
+                val y1 = (r + 1) * cellH
+                drawLine(borderColor, Offset(x, y0), Offset(x, y1), strokeWidth = stroke)
+            }
+
+            if (r + 1 < MapConfig.ROWS && zoneIndex[r + 1][c] != here) {
+                val y = (r + 1) * cellH
+                val x0 = c * cellW
+                val x1 = (c + 1) * cellW
+                drawLine(borderColor, Offset(x0, y), Offset(x1, y), strokeWidth = stroke)
+            }
+        }
+    }
 }
 
 
@@ -73,453 +167,7 @@ fun DrawingCanvasView(
     )
 }
 
-
-
 @Composable
-fun Controls(
-    context: Context,
-    appMode: AppMode,
-    isTraining: Boolean,
-    trainingProgress: String,
-    collectingMode: Boolean,
-    currentLabel: Int,
-    trainingSamples: MutableList<TrainingSample>,
-    modelFile: File,
-    onTrainingStart: () -> Unit,
-    onTrainingEnd: () -> Unit,
-    onProgressUpdate: (String) -> Unit,
-    onCollectingModeToggle: () -> Unit,
-    onLabelChange: (Int) -> Unit,
-    onSampleAdd: (TrainingSample) -> Unit,
-    neuralNetwork: NeuralNetwork,
-    ratings: MutableList<PlaceRating>,
-    onSaveRatings: () -> Unit,
-    selectedFoodPlace: Obshepit?,
-    modifier: Modifier,
-    showGrid: Boolean,
-    editMode: Boolean,
-    foodEditMode: FoodEditMode,
-    clusteringMode: Boolean,
-    foodRouteMode: Boolean,
-    landmarkRouteMode: Boolean,
-    clusterCountText: String,
-    selectedPointsCount: Int,
-    userRowText: String,
-    userColText: String,
-    dishesText: String,
-    routeInfoText: String,
-    landmarks: List<Landmark>,
-    selectedLandmarkIds: List<Int>,
-    landmarkRouteInfo: String,
-    onClusterCountChange: (String) -> Unit,
-    onUserRowChange: (String) -> Unit,
-    onUserColChange: (String) -> Unit,
-    onDishesChange: (String) -> Unit,
-    onGridClick: () -> Unit,
-    onEditClick: () -> Unit,
-    onFoodAddClick: () -> Unit,
-    onFoodDeleteClick: () -> Unit,
-    onExportClick: () -> Unit,
-    onClusteringToggle: () -> Unit,
-    onRunClustering: () -> Unit,
-    onFoodRouteToggle: () -> Unit,
-    onRunFoodRoute: () -> Unit,
-    onClearFoodRoute: () -> Unit,
-    onLandmarkRouteToggle: () -> Unit,
-    onLandmarkSelectionToggle: (Int) -> Unit,
-    onRunLandmarkRoute: () -> Unit,
-    onClearLandmarkRoute: () -> Unit,
-    isErasing: Boolean,
-    onToggleErasing: () -> Unit,
-    onChangeMode: () -> Unit
-) {
-    val scrollState = rememberScrollState()
-    val isDev = appMode == AppMode.DEVELOPER
-    val nn = neuralNetwork
-    var drawingView by remember { mutableStateOf<DrawingView?>(null) }
-    var predictedRating by remember { mutableStateOf<Int?>(null) }
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(Color(0xFFF5F7FA))
-            .verticalScroll(scrollState)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        if (isDev) {
-            ControlCard {
-                MainButton(
-                    if (showGrid) "Скрыть сетку" else "Показать сетку",
-                    onGridClick
-                )
-
-                MainButton(
-                    if (editMode) "Режим просмотра" else "Редактировать карту",
-                    onEditClick
-                )
-
-                MainButton("Выгрузить лог", onExportClick)
-
-                MainButton(
-                    if (isErasing) "Ластик: ВКЛ" else "Ластик",
-                    onToggleErasing
-                )
-            }
-
-            ControlCard {
-                MainButton(
-                    if (foodEditMode == FoodEditMode.ADD)
-                        "Добавление ВКЛ"
-                    else
-                        "Добавить общепит",
-                    onFoodAddClick,
-                    enabled = !clusteringMode && !foodRouteMode && !landmarkRouteMode
-                )
-
-                MainButton(
-                    if (foodEditMode == FoodEditMode.DELETE)
-                        "Удаление ВКЛ"
-                    else
-                        "Удалить общепит",
-                    onFoodDeleteClick,
-                    enabled = !clusteringMode && !foodRouteMode && !landmarkRouteMode
-                )
-            }
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                elevation = CardDefaults.cardElevation(6.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("Обучение нейросети", fontWeight = FontWeight.Bold)
-
-                    MainButton(
-                        text = if (isTraining) "Идёт обучение..." else "Обучить нейросеть",
-                        onClick = {
-                            if (isTraining) return@MainButton
-
-                            Log.d("NN_BUTTON", "Train button clicked!")
-                            onTrainingStart()
-
-                            Thread {
-                                try {
-                                    Log.d("NN_THREAD", "Thread started")
-
-                                    // Удаляем старую модель
-                                    if (modelFile.exists()) {
-                                        modelFile.delete()
-                                        Log.d("NN_THREAD", "Old model deleted")
-                                    }
-
-                                    onProgressUpdate("Начинаем обучение...")
-                                    Thread.sleep(500)
-
-                                    // Создаём тренер
-                                    val trainer = NeuralNetworkTrainer(
-                                        context = context,
-                                        onProgress = { msg ->
-                                            Log.d("NN_PROGRESS", msg)
-                                            onProgressUpdate(msg)
-                                        },
-                                        onComplete = {
-                                            Log.d("NN_COMPLETE", "Training completed callback")
-                                            // Загружаем в основную сеть
-                                            try {
-                                                neuralNetwork.loadModel(modelFile)
-                                                neuralNetwork.markAsTrained()
-                                                onProgressUpdate("✅ Модель загружена!")
-                                            } catch (e: Exception) {
-                                                Log.e("NN_LOAD", "Failed to load: ${e.message}")
-                                                onProgressUpdate("Ошибка загрузки: ${e.message}")
-                                            }
-                                            onTrainingEnd()
-                                        }
-                                    )
-
-                                    Log.d("NN_THREAD", "Calling trainer.train()")
-                                    trainer.train()
-
-                                } catch (e: Exception) {
-                                    Log.e("NN_ERROR", "Error in training thread: ${e.message}", e)
-                                    onProgressUpdate("Критическая ошибка: ${e.message}")
-                                    onTrainingEnd()
-                                }
-                            }.start()
-                        },
-                        enabled = !isTraining
-                    )
-
-                    if (trainingProgress.isNotBlank()) {
-                        Text(
-                            trainingProgress,
-                            fontSize = 12.sp,
-                            color = Color.Gray,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
-                    }
-
-                    MainButton(
-                        text = "Сбросить модель",
-                        onClick = {
-                            if (modelFile.exists()) {
-                                modelFile.delete()
-                                Log.d("NN_RESET", "Model deleted")
-                            }
-                            neuralNetwork.initializeRandomWeights()
-                            onProgressUpdate("Модель сброшена")
-                        }
-                    )
-                }
-            }
-        }
-
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            elevation = CardDefaults.cardElevation(6.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (selectedFoodPlace != null) {
-                    Text(
-                        "Оценка для: ${selectedFoodPlace.title}",
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    val avgRating = ratings
-                        .filter { it.row == selectedFoodPlace.row && it.col == selectedFoodPlace.col }
-                        .map { it.rating }
-                        .average()
-                        .let { if (it.isNaN()) 0.0 else it }
-
-                    if (avgRating > 0) {
-                        Text(
-                            "⭐ Текущий рейтинг: ${String.format("%.1f", avgRating)}",
-                            color = Color(0xFF1976D2),
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    Text("Нарисуйте цифру (1-9):", fontSize = 12.sp)
-
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        DrawingCanvasView(
-                            modifier = Modifier
-                                .size(200.dp)
-                                .background(Color.White, RoundedCornerShape(8.dp))
-                                .clipToBounds(),
-
-                            onReady = { drawingView = it }
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                drawingView?.let { view ->
-                                    val bitmap = (view as? android.view.View)?.let { v ->
-                                        val bmp = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
-                                        val canvas = android.graphics.Canvas(bmp)
-                                        v.draw(canvas)
-                                        bmp
-                                    }
-                                    if (bitmap != null) {
-                                        val input = preprocessBitmap(bitmap)
-                                        Log.d("NN_DEBUG", "Input size: ${input.size}")
-                                        predictedRating = neuralNetwork.predict(input)
-                                    }
-                                }
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Распознать")
-                        }
-                        Button(
-                            onClick = {
-                                drawingView?.clear()
-                                predictedRating = null
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Очистить")
-                        }
-                    }
-
-                    predictedRating?.let { rating ->
-                        Text(
-                            "Распознано: $rating",
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
-
-                        MainButton(
-                            text = "Сохранить оценку",
-                            onClick = {
-
-                                ratings.add(PlaceRating(row = selectedFoodPlace.row, col = selectedFoodPlace.col, rating = rating))
-                                onSaveRatings()
-                                predictedRating = null
-                                drawingView?.clear()
-                            }
-                        )
-                    }
-                } else {
-                    Text(
-                        "Выберите заведение на карте, чтобы оставить оценку",
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-        }
-
-        ControlCard {
-            MainButton(
-                if (clusteringMode) "Вернуться к карте" else "Кластеризация",
-                onClusteringToggle
-            )
-
-            if (clusteringMode) {
-                OutlinedTextField(
-                    value = clusterCountText,
-                    onValueChange = onClusterCountChange,
-                    label = { Text("Количество кластеров K") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Text("Выбрано точек: $selectedPointsCount")
-
-                MainButton("Запустить K-средних", onRunClustering)
-            }
-        }
-
-        ControlCard {
-            MainButton(
-                if (foodRouteMode) "Скрыть поиск по блюдам" else "Маршрут по блюдам",
-                onFoodRouteToggle
-            )
-
-            if (foodRouteMode || landmarkRouteMode) {
-                OutlinedTextField(
-                    value = userRowText,
-                    onValueChange = onUserRowChange,
-                    label = { Text("Строка пользователя") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = userColText,
-                    onValueChange = onUserColChange,
-                    label = { Text("Столбец пользователя") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            if (foodRouteMode) {
-                OutlinedTextField(
-                    value = dishesText,
-                    onValueChange = onDishesChange,
-                    label = { Text("Блюда через запятую") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                MainButton("Построить", onRunFoodRoute)
-                MainButton("Очистить", onClearFoodRoute)
-
-                if (routeInfoText.isNotBlank()) {
-                    Text(routeInfoText)
-                }
-            }
-        }
-
-        ControlCard {
-            MainButton(
-                if (landmarkRouteMode)
-                    "Скрыть маршрут по достопримечательностям"
-                else
-                    "Маршрут по достопримечательностям",
-                onLandmarkRouteToggle
-            )
-
-            if (landmarkRouteMode) {
-                Text("Выберите достопримечательности:", fontWeight = FontWeight.Bold)
-
-                landmarks.forEach { landmark ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .toggleable(
-                                value = landmark.id in selectedLandmarkIds,
-                                onValueChange = { onLandmarkSelectionToggle(landmark.id) }
-                            )
-                            .padding(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = landmark.id in selectedLandmarkIds,
-                            onCheckedChange = null
-                        )
-
-                        Spacer(Modifier.width(8.dp))
-
-                        Column {
-                            Text(landmark.title, fontWeight = FontWeight.SemiBold)
-
-                            if (landmark.description.isNotBlank()) {
-                                Text(
-                                    landmark.description,
-                                    fontSize = 12.sp,
-                                    color = Color.Gray
-                                )
-                            }
-                        }
-                    }
-                }
-
-                MainButton("Построить", onRunLandmarkRoute)
-                MainButton("Очистить", onClearLandmarkRoute)
-
-                if (landmarkRouteInfo.isNotBlank()) {
-                    Text(landmarkRouteInfo)
-                }
-            }
-        }
-
-        MainButton("Сменить режим", onChangeMode)
-
-        Spacer(modifier = Modifier.height(12.dp))
-    }
-}
-
-
-@Composable
-fun Header() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(80.dp)
-            .background(Color(0xFF1976D2))
-            .padding(top = 24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("Навигатор Университета", color = Color.White, fontSize = 20.sp)
-    }
-}
-
-@Composable
-
 fun MainButton(
     text: String,
     onClick: () -> Unit,
@@ -543,73 +191,115 @@ fun MainButton(
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()   // текст растягивается на всю ширину кнопки
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }
 
 @Composable
+fun Header() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(80.dp)
+            .background(Color(0xFF1976D2))
+            .padding(top = 24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text("Навигатор Университета", color = Color.White, fontSize = 20.sp)
+    }
+}
+
+
+@Composable
 fun Controls(
     context: Context,
     appMode: AppMode,
+
     isTraining: Boolean,
     trainingProgress: String,
+
     collectingMode: Boolean,
     currentLabel: Int,
     trainingSamples: MutableList<TrainingSample>,
     modelFile: File,
+
     onTrainingStart: () -> Unit,
     onTrainingEnd: () -> Unit,
     onProgressUpdate: (String) -> Unit,
+
     onCollectingModeToggle: () -> Unit,
     onLabelChange: (Int) -> Unit,
     onSampleAdd: (TrainingSample) -> Unit,
+
     neuralNetwork: NeuralNetwork,
+
     ratings: MutableList<PlaceRating>,
     onSaveRatings: () -> Unit,
     selectedFoodPlace: Obshepit?,
+
+    foodPlaces: List<Obshepit>,
+    userCell: Pair<Int, Int>?,
+
     modifier: Modifier,
+
     showGrid: Boolean,
     editMode: Boolean,
+
     foodEditMode: FoodEditMode,
+
     clusteringMode: Boolean,
     foodRouteMode: Boolean,
     landmarkRouteMode: Boolean,
+
     clusterCountText: String,
     selectedPointsCount: Int,
+
     userRowText: String,
     userColText: String,
+
     dishesText: String,
     routeInfoText: String,
+
     landmarks: List<Landmark>,
     selectedLandmarkIds: List<Int>,
     landmarkRouteInfo: String,
+
     onClusterCountChange: (String) -> Unit,
     onUserRowChange: (String) -> Unit,
     onUserColChange: (String) -> Unit,
     onDishesChange: (String) -> Unit,
+
     onGridClick: () -> Unit,
     onEditClick: () -> Unit,
+
     onFoodAddClick: () -> Unit,
     onFoodDeleteClick: () -> Unit,
+
     onExportClick: () -> Unit,
+
     onClusteringToggle: () -> Unit,
     onRunClustering: () -> Unit,
+
     onFoodRouteToggle: () -> Unit,
     onRunFoodRoute: () -> Unit,
     onClearFoodRoute: () -> Unit,
+
     onLandmarkRouteToggle: () -> Unit,
     onLandmarkSelectionToggle: (Int) -> Unit,
     onRunLandmarkRoute: () -> Unit,
     onClearLandmarkRoute: () -> Unit,
+
     isErasing: Boolean,
     onToggleErasing: () -> Unit,
+
     onChangeMode: () -> Unit,
-    isLandscape: Boolean = false // Новый параметр
+
+    isLandscape: Boolean = false
 ) {
     val scrollState = rememberScrollState()
     val isDev = appMode == AppMode.DEVELOPER
-    val nn = neuralNetwork
+
     var drawingView by remember { mutableStateOf<DrawingView?>(null) }
     var predictedRating by remember { mutableStateOf<Int?>(null) }
 
@@ -623,11 +313,7 @@ fun Controls(
     ) {
         if (isDev) {
             ControlCard {
-                MainButton(
-                    if (showGrid) "Скрыть сетку" else "Показать сетку",
-                    onGridClick,
-                    isLandscape = isLandscape
-                )
+                MainButton(if (showGrid) "Скрыть сетку" else "Показать сетку", onGridClick, isLandscape = isLandscape)
 
                 MainButton(
                     if (editMode) "Режим просмотра" else "Редактировать карту",
@@ -646,25 +332,20 @@ fun Controls(
 
             ControlCard {
                 MainButton(
-                    if (foodEditMode == FoodEditMode.ADD)
-                        "Добавление ВКЛ"
-                    else
-                        "Добавить общепит",
+                    if (foodEditMode == FoodEditMode.ADD) "Добавление ВКЛ" else "Добавить общепит",
                     onFoodAddClick,
                     enabled = !clusteringMode && !foodRouteMode && !landmarkRouteMode,
                     isLandscape = isLandscape
                 )
 
                 MainButton(
-                    if (foodEditMode == FoodEditMode.DELETE)
-                        "Удаление ВКЛ"
-                    else
-                        "Удалить общепит",
+                    if (foodEditMode == FoodEditMode.DELETE) "Удаление ВКЛ" else "Удалить общепит",
                     onFoodDeleteClick,
                     enabled = !clusteringMode && !foodRouteMode && !landmarkRouteMode,
                     isLandscape = isLandscape
                 )
             }
+
             Card(
                 shape = RoundedCornerShape(20.dp),
                 elevation = CardDefaults.cardElevation(6.dp),
@@ -686,44 +367,28 @@ fun Controls(
 
                             Thread {
                                 try {
-                                    Log.d("NN_THREAD", "Thread started")
-
-                                    // Удаляем старую модель
-                                    if (modelFile.exists()) {
-                                        modelFile.delete()
-                                        Log.d("NN_THREAD", "Old model deleted")
-                                    }
+                                    if (modelFile.exists()) modelFile.delete()
 
                                     onProgressUpdate("Начинаем обучение...")
                                     Thread.sleep(500)
 
-                                    // Создаём тренер
                                     val trainer = NeuralNetworkTrainer(
                                         context = context,
-                                        onProgress = { msg ->
-                                            Log.d("NN_PROGRESS", msg)
-                                            onProgressUpdate(msg)
-                                        },
+                                        onProgress = { msg -> onProgressUpdate(msg) },
                                         onComplete = {
-                                            Log.d("NN_COMPLETE", "Training completed callback")
-                                            // Загружаем в основную сеть
                                             try {
                                                 neuralNetwork.loadModel(modelFile)
                                                 neuralNetwork.markAsTrained()
                                                 onProgressUpdate("✅ Модель загружена!")
                                             } catch (e: Exception) {
-                                                Log.e("NN_LOAD", "Failed to load: ${e.message}")
                                                 onProgressUpdate("Ошибка загрузки: ${e.message}")
                                             }
                                             onTrainingEnd()
                                         }
                                     )
 
-                                    Log.d("NN_THREAD", "Calling trainer.train()")
                                     trainer.train()
-
                                 } catch (e: Exception) {
-                                    Log.e("NN_ERROR", "Error in training thread: ${e.message}", e)
                                     onProgressUpdate("Критическая ошибка: ${e.message}")
                                     onTrainingEnd()
                                 }
@@ -745,10 +410,7 @@ fun Controls(
                     MainButton(
                         text = "Сбросить модель",
                         onClick = {
-                            if (modelFile.exists()) {
-                                modelFile.delete()
-                                Log.d("NN_RESET", "Model deleted")
-                            }
+                            if (modelFile.exists()) modelFile.delete()
                             neuralNetwork.initializeRandomWeights()
                             onProgressUpdate("Модель сброшена")
                         },
@@ -758,6 +420,7 @@ fun Controls(
             }
         }
 
+        // Оценки
         Card(
             shape = RoundedCornerShape(20.dp),
             elevation = CardDefaults.cardElevation(6.dp),
@@ -768,10 +431,7 @@ fun Controls(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (selectedFoodPlace != null) {
-                    Text(
-                        "Оценка для: ${selectedFoodPlace.title}",
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text("Оценка для: ${selectedFoodPlace.title}", fontWeight = FontWeight.Bold)
 
                     val avgRating = ratings
                         .filter { it.row == selectedFoodPlace.row && it.col == selectedFoodPlace.col }
@@ -789,16 +449,12 @@ fun Controls(
 
                     Text("Нарисуйте цифру (1-9):", fontSize = 12.sp)
 
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                         DrawingCanvasView(
                             modifier = Modifier
                                 .size(200.dp)
                                 .background(Color.White, RoundedCornerShape(8.dp))
                                 .clipToBounds(),
-
                             onReady = { drawingView = it }
                         )
                     }
@@ -818,38 +474,35 @@ fun Controls(
                                     }
                                     if (bitmap != null) {
                                         val input = preprocessBitmap(bitmap)
-                                        Log.d("NN_DEBUG", "Input size: ${input.size}")
                                         predictedRating = neuralNetwork.predict(input)
                                     }
                                 }
                             },
                             modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Распознать")
-                        }
+                        ) { Text("Распознать") }
+
                         Button(
                             onClick = {
                                 drawingView?.clear()
                                 predictedRating = null
                             },
                             modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Очистить")
-                        }
+                        ) { Text("Очистить") }
                     }
 
                     predictedRating?.let { rating ->
-                        Text(
-                            "Распознано: $rating",
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
+                        Text("Распознано: $rating", fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp))
 
                         MainButton(
                             text = "Сохранить оценку",
                             onClick = {
-
-                                ratings.add(PlaceRating(row = selectedFoodPlace.row, col = selectedFoodPlace.col, rating = rating))
+                                ratings.add(
+                                    PlaceRating(
+                                        row = selectedFoodPlace.row,
+                                        col = selectedFoodPlace.col,
+                                        rating = rating
+                                    )
+                                )
                                 onSaveRatings()
                                 predictedRating = null
                                 drawingView?.clear()
@@ -867,6 +520,7 @@ fun Controls(
             }
         }
 
+        // Кластеризация
         ControlCard {
             MainButton(
                 if (clusteringMode) "Вернуться к карте" else "Кластеризация",
@@ -883,11 +537,11 @@ fun Controls(
                 )
 
                 Text("Выбрано точек: $selectedPointsCount")
-
                 MainButton("Запустить K-средних", onRunClustering, isLandscape = isLandscape)
             }
         }
 
+        // Маршрут по блюдам
         ControlCard {
             MainButton(
                 if (foodRouteMode) "Скрыть поиск по блюдам" else "Маршрут по блюдам",
@@ -902,7 +556,6 @@ fun Controls(
                     label = { Text("Строка пользователя") },
                     modifier = Modifier.fillMaxWidth()
                 )
-
                 OutlinedTextField(
                     value = userColText,
                     onValueChange = onUserColChange,
@@ -922,18 +575,14 @@ fun Controls(
                 MainButton("Построить", onRunFoodRoute, isLandscape = isLandscape)
                 MainButton("Очистить", onClearFoodRoute, isLandscape = isLandscape)
 
-                if (routeInfoText.isNotBlank()) {
-                    Text(routeInfoText)
-                }
+                if (routeInfoText.isNotBlank()) Text(routeInfoText)
             }
         }
 
+        // Маршрут по достопримечательностям
         ControlCard {
             MainButton(
-                if (landmarkRouteMode)
-                    "Скрыть маршрут по достопримечательностям"
-                else
-                    "Маршрут по достопримечательностям",
+                if (landmarkRouteMode) "Скрыть маршрут по достопримечательностям" else "Маршрут по достопримечательностям",
                 onLandmarkRouteToggle,
                 isLandscape = isLandscape
             )
@@ -963,11 +612,7 @@ fun Controls(
                             Text(landmark.title, fontWeight = FontWeight.SemiBold)
 
                             if (landmark.description.isNotBlank()) {
-                                Text(
-                                    landmark.description,
-                                    fontSize = 12.sp,
-                                    color = Color.Gray
-                                )
+                                Text(landmark.description, fontSize = 12.sp, color = Color.Gray)
                             }
                         }
                     }
@@ -976,17 +621,24 @@ fun Controls(
                 MainButton("Построить", onRunLandmarkRoute, isLandscape = isLandscape)
                 MainButton("Очистить", onClearLandmarkRoute, isLandscape = isLandscape)
 
-                if (landmarkRouteInfo.isNotBlank()) {
-                    Text(landmarkRouteInfo)
-                }
+                if (landmarkRouteInfo.isNotBlank()) Text(landmarkRouteInfo)
             }
         }
 
-        MainButton("Сменить режим", onChangeMode, isLandscape = isLandscape)
+        // Дерево решений
+        LunchDecisionTreeCard(
+            isDeveloper = isDev,
+            foodPlaces = foodPlaces,
+            userCell = userCell,
+            modifier = Modifier.fillMaxWidth()
+        )
 
+        MainButton("Сменить режим", onChangeMode, isLandscape = isLandscape)
         Spacer(modifier = Modifier.height(12.dp))
     }
 }
+
+
 @Composable
 fun UniversityMap(
     modifier: Modifier = Modifier,
@@ -1021,9 +673,14 @@ fun UniversityMap(
     var localGrid by remember { mutableStateOf(grid) }
     var selectedFoodPlaceLocal by remember { mutableStateOf<Obshepit?>(null) }
 
-    LaunchedEffect(selectedFoodPlaceLocal) {
-        onFoodPlaceSelected(selectedFoodPlaceLocal)
+    val zoneIndex: Array<IntArray>? by remember {
+        derivedStateOf {
+            val centroids = computeClusterCentroids(clusteredPoints)
+            if (centroids.isEmpty()) null else buildClusterZoneIndex(centroids)
+        }
     }
+
+    LaunchedEffect(selectedFoodPlaceLocal) { onFoodPlaceSelected(selectedFoodPlaceLocal) }
 
     LaunchedEffect(grid) {
         localGrid = grid.map { it.copyOf() }.toTypedArray()
@@ -1036,11 +693,8 @@ fun UniversityMap(
     )
 
     fun getAverageRating(row: Int, col: Int): Float {
-        val list = ratings.filter {
-            it.row == row && it.col == col
-        }
-        return if (list.isEmpty()) 0f
-        else list.map { it.rating }.average().toFloat()
+        val list = ratings.filter { it.row == row && it.col == col }
+        return if (list.isEmpty()) 0f else list.map { it.rating }.average().toFloat()
     }
 
     BoxWithConstraints(
@@ -1137,9 +791,7 @@ fun UniversityMap(
                                 when (foodEditMode) {
                                     FoodEditMode.ADD -> {
                                         onAddFoodPlace(r, c)
-                                        val newPlace =
-                                            foodPlaces.find { it.row == r && it.col == c }
-                                        selectedFoodPlaceLocal = newPlace
+                                        selectedFoodPlaceLocal = foodPlaces.find { it.row == r && it.col == c }
                                     }
 
                                     FoodEditMode.DELETE -> {
@@ -1150,8 +802,7 @@ fun UniversityMap(
                                     }
 
                                     FoodEditMode.NONE -> {
-                                        val clickedFoodPlace =
-                                            foodPlaces.find { it.row == r && it.col == c }
+                                        val clickedFoodPlace = foodPlaces.find { it.row == r && it.col == c }
                                         selectedFoodPlaceLocal = clickedFoodPlace
 
                                         if (localGrid[r][c]) {
@@ -1199,6 +850,19 @@ fun UniversityMap(
                     val cw = size.width / MapConfig.COLS
                     val ch = size.height / MapConfig.ROWS
 
+                    if (clusteredPoints.isNotEmpty()) {
+                        zoneIndex?.let { zones ->
+                            drawClusterZones(
+                                zoneIndex = zones,
+                                cellW = cw,
+                                cellH = ch,
+                                alphaFill = 0.22f,
+                                drawBorders = true
+                            )
+                        }
+                    }
+
+                    // сетка
                     if (showGrid) {
                         for (r in 0 until MapConfig.ROWS) {
                             for (c in 0 until MapConfig.COLS) {
@@ -1215,6 +879,7 @@ fun UniversityMap(
                         }
                     }
 
+                    // путь A*
                     path.forEach { (r, c) ->
                         drawRect(
                             color = Color(0xFF4CAF50),
@@ -1223,6 +888,7 @@ fun UniversityMap(
                         )
                     }
 
+                    // внешний путь
                     externalPath.forEach { (r, c) ->
                         drawRect(
                             color = Color(0xFF1565C0).copy(alpha = 0.85f),
@@ -1231,6 +897,7 @@ fun UniversityMap(
                         )
                     }
 
+                    // маршрут по достопримечательностям
                     landmarkRoutePath.forEach { (r, c) ->
                         drawRect(
                             color = Color(0xFFFF9800).copy(alpha = 0.85f),
@@ -1239,6 +906,7 @@ fun UniversityMap(
                         )
                     }
 
+                    // общепит + рейтинг
                     foodPlaces.forEach { place ->
                         val avgRating = getAverageRating(place.row, place.col)
                         val cellX = place.col * cw
@@ -1272,13 +940,9 @@ fun UniversityMap(
                         }
                     }
 
+                    // достопримечательности
                     landmarks.forEach { landmark ->
-                        val color = if (landmark.id in selectedLandmarkIds) {
-                            Color(0xFF9C27B0)
-                        } else {
-                            Color(0xFF00BCD4)
-                        }
-
+                        val color = if (landmark.id in selectedLandmarkIds) Color(0xFF9C27B0) else Color(0xFF00BCD4)
                         drawRect(
                             color = color.copy(alpha = 0.85f),
                             topLeft = Offset(landmark.col * cw, landmark.row * ch),
@@ -1286,6 +950,7 @@ fun UniversityMap(
                         )
                     }
 
+                    // маршрут по блюдам - точки
                     routeFoodPlaces.forEachIndexed { index, place ->
                         drawRect(
                             color = if (index == 0) Color(0xFFFF5722) else Color(0xFF8BC34A),
@@ -1294,6 +959,7 @@ fun UniversityMap(
                         )
                     }
 
+                    // упорядоченные достопримечательности
                     orderedLandmarks.forEachIndexed { index, landmark ->
                         drawRect(
                             color = if (index == 0) Color(0xFFD32F2F) else Color(0xFF673AB7),
@@ -1302,6 +968,7 @@ fun UniversityMap(
                         )
                     }
 
+                    // пользователь
                     userCell?.let { (r, c) ->
                         drawRect(
                             color = Color.Red.copy(alpha = 0.9f),
@@ -1310,12 +977,11 @@ fun UniversityMap(
                         )
                     }
 
+                    // кластеры / выбранные точки
                     if (clusteredPoints.isNotEmpty()) {
                         clusteredPoints.forEach { point ->
                             drawRect(
-                                color = clusterColors[point.clusterIndex % clusterColors.size].copy(
-                                    alpha = 0.85f
-                                ),
+                                color = clusterColors[point.clusterIndex % clusterColors.size].copy(alpha = 0.85f),
                                 topLeft = Offset(point.col * cw, point.row * ch),
                                 size = Size(cw, ch)
                             )
@@ -1330,6 +996,7 @@ fun UniversityMap(
                         }
                     }
 
+                    // start/end точки A*
                     startPoint?.let { (r, c) ->
                         drawCircle(
                             color = Color.Blue,
@@ -1347,23 +1014,20 @@ fun UniversityMap(
                     }
                 }
 
+                // всплывашка по заведению
                 selectedFoodPlaceLocal?.let { place ->
                     val cellW = mapW / MapConfig.COLS
                     val cellH = mapH / MapConfig.ROWS
 
                     val placeRatings = ratings.filter { it.row == place.row && it.col == place.col }
-                    val avgRating = if (placeRatings.isNotEmpty()) placeRatings.map { it.rating }
-                        .average() else 0.0
+                    val avgRating = if (placeRatings.isNotEmpty()) placeRatings.map { it.rating }.average() else 0.0
 
-                    val dishesText =
-                        if (place.dishes.isNotEmpty()) place.dishes.joinToString(", ") else ""
+                    val dishesText = if (place.dishes.isNotEmpty()) place.dishes.joinToString(", ") else ""
 
                     Text(
                         text = buildString {
                             append(place.title)
-                            if (avgRating > 0) {
-                                append("\n⭐ Рейтинг: ${String.format("%.1f", avgRating)}")
-                            }
+                            if (avgRating > 0) append("\n⭐ Рейтинг: ${String.format("%.1f", avgRating)}")
                             if (dishesText.isNotBlank()) {
                                 append("\nМеню: ")
                                 append(dishesText)

@@ -35,6 +35,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import com.example.universitymapproj.R
 import com.example.universitymapproj.MainScreen
+import androidx.compose.runtime.CompositionLocalProvider
+import com.example.universitymapproj.LocalLunchDecisionTreeState
+import com.example.universitymapproj.LunchDecisionTreeState
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -44,18 +47,24 @@ class MainActivity : ComponentActivity() {
         File(filesDir, "model.dat").delete()
         enableEdgeToEdge()
         setContent {
-            var appModeString by rememberSaveable { mutableStateOf<String?>(null) }
-            val appMode = appModeString?.let { AppMode.valueOf(it) }
+            val lunchState = remember { LunchDecisionTreeState() }
 
-            if (appMode == null) {
-                ModeSelectionScreen { selected ->
-                    appModeString = selected.name
+            CompositionLocalProvider(
+                LocalLunchDecisionTreeState provides lunchState
+            ) {
+                var appModeString by rememberSaveable { mutableStateOf<String?>(null) }
+                val appMode = appModeString?.let { AppMode.valueOf(it) }
+
+                if (appMode == null) {
+                    ModeSelectionScreen { selected ->
+                        appModeString = selected.name
+                    }
+                } else {
+                    MainScreen(
+                        appMode = appMode,
+                        onChangeMode = { appModeString = null }
+                    )
                 }
-            } else {
-                MainScreen(
-                    appMode = appMode,
-                    onChangeMode = { appModeString = null }
-                )
             }
         }
     }
@@ -73,7 +82,7 @@ fun preprocessBitmap(bitmap: Bitmap): FloatArray {
             val b = android.graphics.Color.blue(pixel)
 
             val gray = (r + g + b) / 3f / 255f
-            input[y * 50 + x] = 1f - gray  // Черный = 1, Белый = 0
+            input[y * 50 + x] = 1f - gray
         }
     }
 
